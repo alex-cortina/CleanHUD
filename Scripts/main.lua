@@ -848,10 +848,7 @@ end
 --  scale/translate (NOT the nested FSlateColor construction that crashed).
 --------------------------------------------------------------------
 
--- NOTE: parked/disabled on request -- reverts runtime behaviour to the
--- known-good perf build. Flip back to true to re-enable; the finding it's based
--- on (Border > DistanceTextBlock, from the tree dump) is documented above.
-local NAV_BORDER_HIDE = false     -- true = tint the black backing box transparent
+local NAV_BORDER_HIDE = true      -- false = keep the game's black backing box
 local nav_border_cache = {}
 local nav_border_tick = 0
 
