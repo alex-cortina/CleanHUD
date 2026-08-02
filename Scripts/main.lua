@@ -801,6 +801,29 @@ local reticle_cache = {}    -- cls -> array of instances (possibly empty)
 
 local function clear_reticle_cache() reticle_cache = {} end
 
+-- Do any reticle widgets EXIST at all, shown or not?
+--
+-- This distinguishes two states that both look like "no reticle is shown" but
+-- mean opposite things:
+--   * HUD still building on level load  -> no reticle widgets exist yet
+--   * a melee weapon (energy sword)     -> reticles exist, none is shown
+-- Only the second should keep the magazine number visible. Without this check
+-- the melee rule fired during every load and the mag sat on screen for several
+-- seconds until the first reticle appeared.
+local function reticle_any_exist(classes)
+    for _, cls in ipairs(classes) do
+        local list = reticle_cache[cls]
+        if not list then
+            list = FindAllOf(cls) or {}
+            reticle_cache[cls] = list
+        end
+        for _, w in ipairs(list) do
+            if w:IsValid() then return true end
+        end
+    end
+    return false
+end
+
 local function reticle_shown(classes, force_fresh)
     for _, cls in ipairs(classes) do
         local list = (not force_fresh) and reticle_cache[cls] or nil
@@ -866,18 +889,27 @@ local function apply_og_ammo()
         -- Before flipping ballistic -> charge, confirm with an UNCACHED scan.
         -- Gated on last_charge_up so this only costs a rescan on the transition,
         -- not continuously while a genuine charge weapon is held.
-        local any_reticle = reticle_shown(ALL_RETICLES)
-        if (not any_reticle) and (not last_charge_up) then
-            any_reticle = reticle_shown(ALL_RETICLES, true)
-        end
-        local verdict = reticle_shown(CHARGE_RETICLES) or (not any_reticle)
-        -- FALLBACK: the plasma also exposes a shown numeric charge readout.
-        if not verdict then
-            for _, t in ipairs(pool) do
-                if t:IsValid() and string.find(short_name(t):lower(), "charge", 1, true)
-                        and is_shown(t) and has_digit(widget_text(t)) then
-                    verdict = true
-                    break
+        local verdict
+        if not reticle_any_exist(ALL_RETICLES) then
+            -- HUD hasn't built its reticles yet (level load). The melee rule
+            -- below would misread this as a charge weapon, so hold BALLISTIC:
+            -- mag hidden, which is right for every weapon but the sword and
+            -- self-corrects the moment a real reticle appears.
+            verdict = false
+        else
+            local any_reticle = reticle_shown(ALL_RETICLES)
+            if (not any_reticle) and (not last_charge_up) then
+                any_reticle = reticle_shown(ALL_RETICLES, true)
+            end
+            verdict = reticle_shown(CHARGE_RETICLES) or (not any_reticle)
+            -- FALLBACK: the plasma also exposes a shown numeric charge readout.
+            if not verdict then
+                for _, t in ipairs(pool) do
+                    if t:IsValid() and string.find(short_name(t):lower(), "charge", 1, true)
+                            and is_shown(t) and has_digit(widget_text(t)) then
+                        verdict = true
+                        break
+                    end
                 end
             end
         end
@@ -1622,6 +1654,13 @@ NotifyOnNewObject("/Script/UMG.UserWidget", function(widget)
     local name = class_name(widget)
     if not name then return end
     local lname = name:lower()
+    -- A reticle just spawned: drop the instance cache so the ammo classifier
+    -- sees it on its very next pass. Otherwise the empty lists cached during
+    -- HUD warm-up would linger until the ~2s periodic clear, extending the
+    -- window where the magazine number is still on screen after a load.
+    if string.find(lname, "wbp_weaponaim_scope", 1, true) then
+        clear_reticle_cache()
+    end
     if is_hud(name) then
         if (not matches_any(lname, NEVER_TOUCH)) and (not matches_any(lname, current_keep())) then
             ExecuteWithDelay(50, function() set_vis(widget, VIS_COLLAPSED) end)
@@ -1775,6 +1814,45 @@ end
 -- fix. Confirmed twice. SetVisibility hooking is untenable here. The mag is hidden
 -- via collapse + render-opacity + the SetColorAndOpacity alpha-zero, which is
 -- stable; a rare ~1-frame flash on the animated-cradle weapons is the trade-off.
+
+-- TEMP DIAGNOSTIC: reserve ammo vanishing ~5-10s after load. Samples every
+-- ammo text widget twice a second and logs ONLY when the STATE signature
+-- changes (text is shown but excluded from the signature, so firing doesn't
+-- spam). The log therefore brackets the exact moment the reserve disappears
+-- and names which property moved: collapsed (vis), faded (op), or destroyed.
+local AMMO_WATCH = true
+if AMMO_WATCH then
+    local last_sig
+    LoopAsync(500, function()
+        if enabled then
+            pcall(function()
+                local sig, out = {}, {}
+                for _, t in ipairs(ammo_pool()) do
+                    if t:IsValid() then
+                        local nm = short_name(t)
+                        local n  = nm:lower()
+                        if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n)
+                           or string.find(n, "ammo", 1, true) then
+                            local vis, op = -1, -1
+                            pcall(function() vis = t:GetVisibility() end)
+                            pcall(function() op  = t:GetRenderOpacity() end)
+                            local shown = tostring(is_shown(t))
+                            sig[#sig + 1] = string.format("%s:%d:%.2f:%s", nm, vis, op, shown)
+                            out[#out + 1] = string.format("%s['%s' vis=%d op=%.2f shown=%s]",
+                                nm, widget_text(t) or "", vis, op, shown)
+                        end
+                    end
+                end
+                local s = table.concat(sig, "|")
+                if s ~= last_sig then
+                    last_sig = s
+                    log("AMMOWATCH " .. (#out > 0 and table.concat(out, "  ") or "(no ammo widgets)"))
+                end
+            end)
+        end
+        return false
+    end)
+end
 
 log("Loaded  [BUILD v2.1]  Settings persisted to settings.ini.")
 log(string.format("  visor=%s  scale=%.2f  crosshair_only=%s  hide_crosshair=%s  objectives=%s  navpoints=%s  ce_layout=%s",
