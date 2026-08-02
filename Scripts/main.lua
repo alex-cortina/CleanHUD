@@ -14,6 +14,8 @@
 --    Ctrl+Shift+N  - toggle objectives + waypoints + pickup markers
 --    Shift+N       - toggle just the waypoints / nav markers
 --    Shift+C       - toggle the crosshair on/off
+--    Ctrl+Shift+Arrows - CE layout: nudge the ammo cradle (saved to settings.ini)
+--    Ctrl+Alt+Arrows   - CE layout: nudge the grenade/equipment group (saved)
 --    F9            - full dump of every live UI widget (top-level)
 --    F7            - keeper layout report
 --    F6            - tree dump: WBP_HUD_Main's internal children by name
@@ -30,32 +32,19 @@ local function log(msg) print("[CleanUI] " .. tostring(msg) .. "\n") end
 --  SETTINGS PERSISTENCE  (read/write settings.ini next to the mod)
 --------------------------------------------------------------------
 
--- Resolve the mod root (parent of Scripts/).  Try debug.getinfo first;
--- fall back to the UE4SS-provided cwd which is already the mod folder.
-local SETTINGS_FILE
-do
-    local dir
-    local ok, info = pcall(debug.getinfo, 1, "S")
-    if ok and info and info.source then
-        dir = info.source:match("@?(.+[\\/])")        -- .../Scripts/
-        if dir then dir = dir:match("(.+[\\/])") end   -- .../ModRoot/
-    end
-    if not dir or dir == "" then
-        -- UE4SS sets the working directory to the mod folder
-        dir = ""
-    end
-    SETTINGS_FILE = dir .. "settings.ini"
-end
+-- Lua's io paths resolve against the PROCESS working directory, which is the
+-- game exe folder (Win64), NOT the mod folder -- debug.getinfo gives no usable
+-- path in UE4SS, so earlier builds silently wrote "settings.ini" next to the
+-- game exe. That shadow file kept overriding shipped defaults for hours before
+-- anyone found it. Proper location is the mod folder, reached relative to the
+-- exe dir; the legacy exe-dir file is still read (then superseded) so existing
+-- users' settings migrate instead of resetting.
+local SETTINGS_FILE   = "ue4ss/Mods/CleanHUD/settings.ini"
+local LEGACY_SETTINGS = "settings.ini"   -- pre-fix builds wrote here (exe dir)
 
-local function read_settings()
-    local f = io.open(SETTINGS_FILE, "r")
-    if not f then
-        -- Try Scripts-relative as a last resort (UE4SS cwd is sometimes Scripts/)
-        f = io.open("../settings.ini", "r")
-        if f then SETTINGS_FILE = "../settings.ini" end
-    end
-    if not f then return {} end
-    local t = {}
+local function read_ini_into(path, t)
+    local f = io.open(path, "r")
+    if not f then return false end
     for line in f:lines() do
         if not line:match("^%s*#") then
             local k, v = line:match("^([%w_]+)%s*=%s*(.+)$")
@@ -63,17 +52,31 @@ local function read_settings()
         end
     end
     f:close()
+    return true
+end
+
+local function read_settings()
+    local t = {}
+    read_ini_into(LEGACY_SETTINGS, t)   -- migrate old location if present...
+    read_ini_into(SETTINGS_FILE, t)     -- ...proper location wins on conflict
     return t
 end
 
 local function write_settings(tbl)
     local f = io.open(SETTINGS_FILE, "w")
+    if not f then
+        -- unexpected cwd (non-standard launcher): keep persistence alive by
+        -- falling back to the legacy exe-dir location rather than losing saves
+        f = io.open(LEGACY_SETTINGS, "w")
+        if f then SETTINGS_FILE = LEGACY_SETTINGS end
+    end
     if not f then log("settings: could not write " .. SETTINGS_FILE); return end
     f:write("# Clean HUD - settings\n")
     f:write("# Edit to set your launch defaults, or change them live in-game.\n")
     f:write("# Toggles are true/false; hud_scale is a number like 0.80.\n")
     local order = { "visor_lines", "hud_scale", "hide_crosshair", "crosshair_only",
-                    "show_objectives", "show_navpoints" }
+                    "show_objectives", "show_navpoints", "ce_layout",
+                    "ce_ammo_x", "ce_ammo_y", "ce_gren_x", "ce_gren_y" }
     for _, k in ipairs(order) do
         if tbl[k] ~= nil then f:write(k .. "=" .. tostring(tbl[k]) .. "\n") end
     end
@@ -190,6 +193,61 @@ local TRANSLATE = {
     ["weaponcradle"]  = { x = 70,  y = 45 },  -- push weapon toward bottom-RIGHT
 }
 
+-- CE LAYOUT: arrange the cradles like original Halo CE (confirmed against a
+-- real CE screenshot): ammo counter in the TOP-LEFT corner with the grenade
+-- count sitting just to its right -- NOT in opposite corners (that's Halo 2/3).
+-- Because the cradles sit in different container types (GridSlot vs
+-- HorizontalBoxSlot), slot alignment can't cross the screen -- so this is done
+-- with RenderTranslation in design-space units (~1920 wide regardless of
+-- actual resolution). Tune the constants by eye.
+-- NOTE: on ultrawide (21:9) the weapon-cradle constant will land short.
+-- Persisted as ce_layout in settings.ini.
+local CE_LAYOUT      = bool_val(ini.ce_layout, true)
+-- Offsets are PER-USER: the effective distance depends on the player's in-game
+-- HUD scale and aspect ratio, so there is no single correct constant. (The
+-- "correct by default" alternatives were tried and are dead ends in UE4SS:
+-- Slate geometry reads marshal as empty structs, and reparenting into
+-- GrenadeAndEquipmentGridPanel succeeded structurally -- slot calls all
+-- returned true -- but the panel's own column layout still stretched the cell
+-- full-width and the cradle re-attached to the right edge.) So: sensible 16:9
+-- defaults below, live tuning via Ctrl+Shift/Ctrl+Alt + Arrows, and the tuned
+-- values persist per-user in settings.ini.
+-- Defaults computed from 16:9 screenshot measurements (~0.44 px/unit at this
+-- setup): target is the far top-LEFT corner (grenades move to the right-side
+-- box, vacating it). -3525 would land the corner from the measured -2900
+-- position; the grenades joining the cradle's HorizontalBox shifts its layout
+-- left by roughly their width, so the net constant is smaller. Fine-tune with
+-- the arrows; values persist per-user.
+-- Edge-hugging defaults, computed from a verified measurement pair (ini value
+-- + rendered screenshot, 0.54 px/unit at 16:9) to match the radar's ~65px
+-- corner margin. Earlier defaults were flying blind against a shadow ini that
+-- overrode them -- see the settings-path note above.
+local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -3010
+local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -10
+-- Grenade offsets are applied AFTER the reparent into the right-side box
+-- (see CE GRENADES RIGHT): a nudge from the box's layout spot to the screen
+-- edge. Before the reparent they stay at 0,0 -- translating them while still
+-- inside their grid cell is what used to make them vanish (cell clipping).
+local CE_GREN_X      = tonumber(ini.ce_gren_x) or 940
+local CE_GREN_Y      = tonumber(ini.ce_gren_y) or -65
+
+if CE_LAYOUT then
+    TRANSLATE["weaponcradle"] = { x = CE_AMMO_X, y = CE_AMMO_Y }
+    -- The cradle is MIRRORED in CE layout (negative X scale in apply_hud_scale).
+    -- Pivot on the RIGHT edge (x=1.0), and specifically NOT the centre: the
+    -- cradle is right-anchored and grows LEFTWARD as its content widens (the
+    -- AR's 32-pip row vs the shotgun's short one), so any pivot that depends on
+    -- width makes each weapon land at a different X. The right edge is the one
+    -- point the layout holds fixed -- reflecting across it makes the rendered
+    -- LEFT edge width-independent, so every weapon lines up at the same spot.
+    SCALE_PIVOT.weaponcradle  = { x = 1.0, y = 0.0 }
+    -- Grenades: ZERO until the reparent lands them in the right-side box --
+    -- translating them inside their original grid cell just clips them out of
+    -- view. ce_grenades_right() applies the CE_GREN offsets on the move event.
+    TRANSLATE["grenadecradle"] = { x = 0, y = 0 }
+    TRANSLATE["equipmenticon"] = { x = 0, y = 0 }
+end
+
 -- (no master on/off key -- the mod stays on; disable the mod file to see vanilla)
 -- Crosshair-only mode uses a modifier combo so NOTHING else can collide with it.
 local KEY_CROSSHAIR      = Key.H
@@ -223,6 +281,17 @@ local function save_current()
         crosshair_only = tostring(crosshair_only),
         show_objectives = tostring(show_objectives),
         show_navpoints  = tostring(show_navpoints),
+        ce_layout       = tostring(CE_LAYOUT),
+        -- tuned cradle offsets (only meaningful -- and only written -- in CE
+        -- layout; reads the live TRANSLATE tables so hotkey nudges are captured)
+        ce_ammo_x = CE_LAYOUT and TRANSLATE["weaponcradle"]
+                    and string.format("%d", TRANSLATE["weaponcradle"].x) or nil,
+        ce_ammo_y = CE_LAYOUT and TRANSLATE["weaponcradle"]
+                    and string.format("%d", TRANSLATE["weaponcradle"].y) or nil,
+        ce_gren_x = CE_LAYOUT and TRANSLATE["grenadecradle"]
+                    and string.format("%d", TRANSLATE["grenadecradle"].x) or nil,
+        ce_gren_y = CE_LAYOUT and TRANSLATE["grenadecradle"]
+                    and string.format("%d", TRANSLATE["grenadecradle"].y) or nil,
     })
     if ok then
         log("settings: saved to " .. SETTINGS_FILE)
@@ -729,9 +798,17 @@ local reticle_cache = {}    -- cls -> array of instances (possibly empty)
 
 local function clear_reticle_cache() reticle_cache = {} end
 
-local function reticle_shown(classes)
+local function reticle_shown(classes, force_fresh)
     for _, cls in ipairs(classes) do
-        local list = reticle_cache[cls]
+        local list = (not force_fresh) and reticle_cache[cls] or nil
+        -- A cached instance going invalid means the widget was destroyed (and
+        -- probably rebuilt, e.g. on a weapon swap). Drop the entry and rescan,
+        -- or we'd keep reporting "not shown" for a reticle that now exists.
+        if list then
+            for _, w in ipairs(list) do
+                if not w:IsValid() then list = nil; break end
+            end
+        end
         if not list then
             list = FindAllOf(cls) or {}
             reticle_cache[cls] = list
@@ -780,7 +857,17 @@ local function apply_og_ammo()
         -- energy sword). Either means a charge weapon whose "NN%" must stay visible.
         -- The AR/human sniper/Needler all show a reticle that ISN'T an energy one, so
         -- they're correctly treated as ballistic.
-        local verdict = reticle_shown(CHARGE_RETICLES) or (not reticle_shown(ALL_RETICLES))
+        -- "No reticle on screen at all" is the ONLY signal that keeps the
+        -- magazine number visible, so a false negative here un-hides it -- which
+        -- is exactly what a stale cache produced right after a weapon swap.
+        -- Before flipping ballistic -> charge, confirm with an UNCACHED scan.
+        -- Gated on last_charge_up so this only costs a rescan on the transition,
+        -- not continuously while a genuine charge weapon is held.
+        local any_reticle = reticle_shown(ALL_RETICLES)
+        if (not any_reticle) and (not last_charge_up) then
+            any_reticle = reticle_shown(ALL_RETICLES, true)
+        end
+        local verdict = reticle_shown(CHARGE_RETICLES) or (not any_reticle)
         -- FALLBACK: the plasma also exposes a shown numeric charge readout.
         if not verdict then
             for _, t in ipairs(pool) do
@@ -877,6 +964,97 @@ local function hide_nav_borders()
     end
 end
 
+--------------------------------------------------------------------
+--  CE GRENADES RIGHT  (grenades + equipment -> top-right corner)
+--
+--  Grenades CANNOT be translated to the right side: their grid gives each
+--  child a snug auto-sized cell and translating outside it gets clipped
+--  (this is why the early +420 nudge made them vanish). But reparenting is
+--  mechanically proven (slot calls all succeeded in the grid experiment), and
+--  the perfect destination exists: the weapon cradle's original right-side
+--  HorizontalBox -- the container that anchored the ammo to the top-right
+--  corner all game. Moving the grenades into it inherits that anchoring for
+--  free, on every resolution. Checked every pass so HUD rebuilds re-apply.
+--------------------------------------------------------------------
+
+local ce_diag_seen = {}
+local function ce_diag(msg)
+    if not ce_diag_seen[msg] then ce_diag_seen[msg] = true; log("CEPOS " .. msg) end
+end
+
+local function ce_grenades_right(widgets)
+    if not CE_LAYOUT then return end
+
+    -- SHOWN only (stale instances from old levels also match), and EXACT class
+    -- names: the asset folder is /Game/UI/Hud/WeaponCradle/, so a bare
+    -- "weaponcradle" substring also matches WBP_AmmoPickupBanner and
+    -- WBP_WeaponCooldownBar that live in it -- and first-match single-target
+    -- operations then grab the wrong widget entirely. (Likely what the earlier
+    -- grid experiment actually did.) The _C class suffix disambiguates.
+    local wc, gc, eq
+    for _, w in ipairs(widgets) do
+        if w:IsValid() and is_shown(w) then
+            local n = class_name(w)
+            if n then
+                local ln = n:lower()
+                if not string.find(short_name(w):lower(), "default__", 1, true) then
+                    if not wc and string.find(ln, "wbp_weaponcradle_c", 1, true) then wc = w end
+                    if not gc and string.find(ln, "wbp_grenadecradle_c", 1, true) then gc = w end
+                    if not eq and string.find(ln, "wbp_equipmenticon_c", 1, true) then eq = w end
+                end
+            end
+        end
+    end
+    if not (wc and gc) then return end
+
+    local okrun, errrun = pcall(function()
+        -- the cradle may be wrapped (CommonVisualAttachment etc.); walk up a
+        -- few levels to the HorizontalBox rather than trusting the direct parent
+        local hbox
+        local cur = wc
+        for _ = 1, 5 do
+            local p
+            pcall(function() p = cur:GetParent() end)
+            if not p or not p:IsValid() then break end
+            if string.find(short_class(p):lower(), "horizontalbox", 1, true) then hbox = p; break end
+            cur = p
+        end
+        if not hbox then ce_diag("bail: no HorizontalBox within 5 levels above the cradle"); return end
+
+        local function move_in(w, label)
+            local cur
+            pcall(function() cur = w:GetParent() end)
+            if cur and cur:IsValid() and cur:GetAddress() == hbox:GetAddress() then return false end
+            local slot = hbox:AddChildToHorizontalBox(w)
+            if not slot or not slot:IsValid() then
+                ce_diag("FAILED: AddChildToHorizontalBox(" .. label .. ") returned no slot")
+                return false
+            end
+            pcall(function() slot:SetVerticalAlignment(1) end)                 -- top
+            pcall(function() slot:SetPadding({ Left = 18, Top = 0, Right = 0, Bottom = 0 }) end)
+            return true
+        end
+
+        if move_in(gc, "grenades") then
+            -- translate stays ZERO: layout alone owns the position. This is
+            -- the only configuration ever PROVEN visible on screen. Every
+            -- attempt to nudge them from here with offsets (500..940 on x,
+            -- -100..270 on y, in various combinations) made them vanish in
+            -- ways that defeated three rounds of clip-boundary reasoning --
+            -- whatever clips this box is not a simple rectangle we can map
+            -- blind. Do NOT re-apply saved CE_GREN offsets here.
+            local t = TRANSLATE["grenadecradle"]
+            if t then t.x = 0; t.y = 0 end
+            log("CEPOS grenades moved into the right-side weapon box (layout position)")
+        end
+        if eq and move_in(eq, "equipment") then
+            local t = TRANSLATE["equipmenticon"]
+            if t then t.x = 0; t.y = 0 end
+        end
+    end)
+    if not okrun then ce_diag("inner error: " .. tostring(errrun)) end
+end
+
 local function apply()
     local widgets = FindAllOf("UserWidget")
     if not widgets then return 0, 0 end
@@ -921,6 +1099,11 @@ local function apply()
     -- nav marker backing box -> transparent (see NAV MARKER BACKING BOX above)
     local okn, en = pcall(hide_nav_borders)
     if not okn then log("nav-border error: " .. tostring(en)) end
+
+    -- CE layout: grenades + equipment live in the right-side weapon box
+    local okg, eg = pcall(ce_grenades_right, widgets)
+    if not okg then log("ce-grenades error: " .. tostring(eg)) end
+
 
     -- hide baked-in internal pieces (CHILD_HIDE, plus visor pieces when clean)
     walk_hud("hide")
@@ -996,10 +1179,34 @@ local function apply_hud_scale()
                         pcall(function()
                             local piv = SCALE_PIVOT[key]
                             if piv then w:SetRenderTransformPivot({ X = piv.x, Y = piv.y }) end
-                            w:SetRenderScale({ X = HUD_SCALE, Y = HUD_SCALE })
+                            -- CE layout: MIRROR the weapon cradle (negative X
+                            -- scale) so its right-handed composition faces left.
+                            -- Text inside is counter-flipped below so numbers
+                            -- still read normally. Same flat {X,Y} marshal.
+                            local sx = HUD_SCALE
+                            if CE_LAYOUT and key == "weaponcradle" then sx = -HUD_SCALE end
+                            w:SetRenderScale({ X = sx, Y = HUD_SCALE })
                         end)
                         break
                     end
+                end
+            end
+        end
+    end
+
+    -- Counter-flip the ammo text blocks inside the mirrored cradle: a second
+    -- X=-1 mirror cancels the parent's, so digits render un-reversed. Applies
+    -- to mag + reserve + separator (mag holds the visible "NN%" on charge
+    -- weapons, so it needs the fix too even though it's hidden on ballistics).
+    if CE_LAYOUT then
+        for _, t in ipairs(ammo_pool()) do
+            if t:IsValid() then
+                local n = short_name(t):lower()
+                if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n) then
+                    pcall(function()
+                        t:SetRenderTransformPivot({ X = 0.5, Y = 0.5 })
+                        t:SetRenderScale({ X = -1.0, Y = 1.0 })
+                    end)
                 end
             end
         end
@@ -1261,6 +1468,40 @@ pcall(function()
         set_hud_scale(1.0)
     end)
 end)
+
+-- CE-LAYOUT POSITION HOTKEYS (a real feature, not a debug tool): the right
+-- offsets depend on each user's HUD scale and aspect ratio, so they position
+-- the cradles by eye and the values persist to settings.ini.
+--   Ctrl+Shift+Arrows : nudge the ammo/weapon cradle, 25 units per press
+--   Ctrl+Alt+Arrows   : nudge the grenade+equipment group
+if CE_LAYOUT then
+    local ammo_group = { TRANSLATE["weaponcradle"] }
+    local gren_group = { TRANSLATE["grenadecradle"], TRANSLATE["equipmenticon"] }
+
+    local function ce_nudge(group, label, dx, dy)
+        for _, t in ipairs(group) do t.x = t.x + dx; t.y = t.y + dy end
+        pcall(apply_translates)
+        log(string.format("CE TUNE %s -> x=%d  y=%d", label, group[1].x, group[1].y))
+        save_current()   -- tuned position survives restarts
+    end
+
+    local function bind_nudge(key, mods, group, label, dx, dy)
+        pcall(function()
+            RegisterKeyBind(key, mods, function() ce_nudge(group, label, dx, dy) end)
+        end)
+    end
+
+    local CS = { ModifierKey.CONTROL, ModifierKey.SHIFT }
+    local CA = { ModifierKey.CONTROL, ModifierKey.ALT }
+    bind_nudge(Key.LEFT_ARROW,  CS, ammo_group, "ammo",     -25,   0)
+    bind_nudge(Key.RIGHT_ARROW, CS, ammo_group, "ammo",      25,   0)
+    bind_nudge(Key.UP_ARROW,    CS, ammo_group, "ammo",       0, -25)
+    bind_nudge(Key.DOWN_ARROW,  CS, ammo_group, "ammo",       0,  25)
+    bind_nudge(Key.LEFT_ARROW,  CA, gren_group, "grenades", -25,   0)
+    bind_nudge(Key.RIGHT_ARROW, CA, gren_group, "grenades",  25,   0)
+    bind_nudge(Key.UP_ARROW,    CA, gren_group, "grenades",   0, -25)
+    bind_nudge(Key.DOWN_ARROW,  CA, gren_group, "grenades",   0,  25)
+end
 
 RegisterKeyBind(KEY_DUMP,   function() dump_widgets() end)
 RegisterKeyBind(KEY_REPORT, function() layout_report() end)
@@ -1535,11 +1776,14 @@ end
 -- stable; a rare ~1-frame flash on the animated-cradle weapons is the trade-off.
 
 log("Loaded  [BUILD v2.1]  Settings persisted to settings.ini.")
-log(string.format("  visor=%s  scale=%.2f  crosshair_only=%s  hide_crosshair=%s  objectives=%s  navpoints=%s",
+log(string.format("  visor=%s  scale=%.2f  crosshair_only=%s  hide_crosshair=%s  objectives=%s  navpoints=%s  ce_layout=%s",
     tostring(KEEP_VISOR_LINES), HUD_SCALE, tostring(crosshair_only), tostring(hide_crosshair),
-    tostring(show_objectives), tostring(show_navpoints)))
+    tostring(show_objectives), tostring(show_navpoints), tostring(CE_LAYOUT)))
 log("Ctrl+Shift+H=crosshair-only, Ctrl+Shift+V=visor lines.")
 log("HUD SCALE: Ctrl+Shift+- =smaller, Ctrl+Shift++ =bigger, Ctrl+Shift+K=reset (numpad +/- too).")
 log("Ctrl+Shift+N=objectives+waypoints, Shift+N=waypoints only, Shift+C=crosshair.")
+if CE_LAYOUT then
+    log("CE layout ON: Ctrl+Shift+Arrows move the ammo cradle, Ctrl+Alt+Arrows move grenades (saved).")
+end
 log("Diagnostics: F9=dump, F7=keeper report, F6=tree dump.")
 
