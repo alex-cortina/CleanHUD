@@ -1,0 +1,12 @@
+# Runtime user state, not source. The mod rewrites this on EVERY hotkey press,
+# so tracking it would make every commit look dirty and bury real code changes.
+# Safe to ignore: read_settings() falls back to defaults when the file is
+# missing, and save_current() recreates it (with its comment header) on the
+# first toggle. For a public release, ship a copy of it alongside the zip so
+# users can pre-configure before first launch.
+settings.ini
+
+# Windows / OneDrive litter
+desktop.ini
+Thumbs.db
+*.bak

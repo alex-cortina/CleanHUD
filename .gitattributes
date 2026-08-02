@@ -1,0 +1,4 @@
+# Keep line endings consistent in the repo (LF), regardless of Windows editors.
+# Without this, Git's autocrlf can make a file look 100% changed when only one
+# line actually differs -- which makes "what did I break?" much harder to answer.
+* text=auto eol=lf
