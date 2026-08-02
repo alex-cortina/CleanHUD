@@ -228,8 +228,11 @@ local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -10
 -- (see CE GRENADES RIGHT): a nudge from the box's layout spot to the screen
 -- edge. Before the reparent they stay at 0,0 -- translating them while still
 -- inside their grid cell is what used to make them vanish (cell clipping).
-local CE_GREN_X      = tonumber(ini.ce_gren_x) or 940
-local CE_GREN_Y      = tonumber(ini.ce_gren_y) or -65
+-- 375/0 was found by LIVE tap-tuning on screen, not computed: the right-side
+-- box clips somewhere between x=375 (visible, packed to the corner) and x=500
+-- (gone). Values beyond that vanish the grenades on the reference setup.
+local CE_GREN_X      = tonumber(ini.ce_gren_x) or 375
+local CE_GREN_Y      = tonumber(ini.ce_gren_y) or 0
 
 if CE_LAYOUT then
     TRANSLATE["weaponcradle"] = { x = CE_AMMO_X, y = CE_AMMO_Y }
@@ -1036,20 +1039,18 @@ local function ce_grenades_right(widgets)
         end
 
         if move_in(gc, "grenades") then
-            -- translate stays ZERO: layout alone owns the position. This is
-            -- the only configuration ever PROVEN visible on screen. Every
-            -- attempt to nudge them from here with offsets (500..940 on x,
-            -- -100..270 on y, in various combinations) made them vanish in
-            -- ways that defeated three rounds of clip-boundary reasoning --
-            -- whatever clips this box is not a simple rectangle we can map
-            -- blind. Do NOT re-apply saved CE_GREN offsets here.
+            -- apply the edge-pack nudge on the move event. 375/0 is user-tap-
+            -- verified (see CE_GREN defaults note); computed values repeatedly
+            -- landed past the box's clip edge and vanished the grenades. If a
+            -- user tunes past the edge themselves, Ctrl+Alt+Left still applies
+            -- live, so an invisible cradle is always tap-recoverable.
             local t = TRANSLATE["grenadecradle"]
-            if t then t.x = 0; t.y = 0 end
-            log("CEPOS grenades moved into the right-side weapon box (layout position)")
+            if t then t.x = CE_GREN_X; t.y = CE_GREN_Y end
+            log("CEPOS grenades moved into the right-side weapon box")
         end
         if eq and move_in(eq, "equipment") then
             local t = TRANSLATE["equipmenticon"]
-            if t then t.x = 0; t.y = 0 end
+            if t then t.x = CE_GREN_X; t.y = CE_GREN_Y end
         end
     end)
     if not okrun then ce_diag("inner error: " .. tostring(errrun)) end
