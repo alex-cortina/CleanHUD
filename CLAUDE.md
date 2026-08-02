@@ -20,6 +20,11 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
    matches (`/WeaponCradle/` also contains WBP_AmmoPickupBanner and
    WBP_WeaponCooldownBar). Single-target ops need: exact `_c` class suffix
    match + `is_shown()` + skip `Default__`.
+   - Stale instances stay VALID and keep a walkable WidgetTree, so `IsValid()`
+     and "has a tree" do NOT filter them — only `is_shown()` does. This has
+     now caused three separate bugs (silent prune no-op, grid reparent onto a
+     dead pair, decorations returning after a level change). Apply the full
+     check to EVERY single-target lookup, not just the one being debugged.
 
 ## What works / what doesn't (UE4SS Lua, learned empirically)
 
