@@ -4,7 +4,8 @@
       "Bash(cp 'F:\\\\SteamLibrary\\\\steamapps\\\\common\\\\Halo Campaign Evolved\\\\Meteorite\\\\Binaries\\\\Win64\\\\ue4ss\\\\Mods\\\\CleanHUD\\\\Scripts\\\\main.lua' 'C:\\\\Users\\\\User1\\\\OneDrive\\\\Desktop\\\\CleanHUD\\\\Scripts\\\\main.lua')",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(luac -p main.lua)"
     ]
   }
 }

@@ -380,6 +380,22 @@ local function is_cradle_prompt(name, w)
     return outer_has(w, HIDE_ACTIONWIDGET_UNDER, 12)
 end
 
+-- Is a widget actually visible on screen (not Collapsed/Hidden)?
+-- Defined HERE, high up, because find_hud_main() and the widget-tree code below
+-- depend on it -- a `local function` referenced before its definition resolves
+-- to a nil global and dies inside a pcall with no message.
+local function is_shown(w)
+    local v
+    if pcall(function() v = w:IsVisible() end) and v ~= nil then
+        return v == true
+    end
+    -- fallback: ESlateVisibility (1=Collapsed, 2=Hidden)
+    if pcall(function() v = w:GetVisibility() end) and type(v) == "number" then
+        return v ~= 1 and v ~= 2
+    end
+    return true
+end
+
 local function set_vis(w, vis)
     pcall(function()
         if w:IsValid() then
@@ -395,15 +411,19 @@ end
 local MAX_NODES = 4000
 local node_count = 0
 
--- FindAllOf returns the class-default object next to the live widget
--- ("Default__WBP_HUD_Main_C"), and its WidgetTree is empty. Returning the first
--- match would hand back a shell we can't walk -- the exact trap that made the
--- shield-bar prune silently no-op for days. Skip CDOs and require a WidgetTree
--- we can actually traverse; fall back to any non-CDO match if none qualifies.
+-- FindAllOf hands back three kinds of impostor for one live widget: the
+-- class-default object ("Default__WBP_HUD_Main_C", empty WidgetTree), and --
+-- after a level transition -- the PREVIOUS level's HUD_Main, which is still
+-- valid and still has a walkable WidgetTree. Walking that dead tree hides
+-- decorations on a HUD nobody can see, which is why loading a new level
+-- brought back the cradle frames and backer boxes.
+--
+-- So require is_shown() too: only the live HUD renders. Ordering of the
+-- fallbacks matters -- a shown-but-treeless widget still beats a stale one.
 local function find_hud_main()
     local widgets = FindAllOf("UserWidget")
     if not widgets then return nil end
-    local fallback
+    local shown_no_tree, any_match
     for _, w in ipairs(widgets) do
         if w:IsValid() then
             local n = class_name(w)
@@ -414,12 +434,14 @@ local function find_hud_main()
                     local wt = w.WidgetTree
                     if wt and wt:IsValid() then root = wt.RootWidget end
                 end)
-                if root and root:IsValid() then return w end
-                fallback = fallback or w
+                local live = is_shown(w)
+                if root and root:IsValid() and live then return w end   -- ideal
+                if live then shown_no_tree = shown_no_tree or w end
+                any_match = any_match or w
             end
         end
     end
-    return fallback
+    return shown_no_tree or any_match
 end
 
 -- Walk a widget subtree. mode = "dump" prints; mode = "hide" collapses
@@ -756,19 +778,6 @@ end
 local function is_slash(t, n) return SLASH_NAMES[n] == true end
 
 local function has_digit(s) return s ~= nil and string.find(s, "%d") ~= nil end
-
--- Is a widget actually visible on screen (not Collapsed/Hidden)?
-local function is_shown(w)
-    local v
-    if pcall(function() v = w:IsVisible() end) and v ~= nil then
-        return v == true
-    end
-    -- fallback: ESlateVisibility (1=Collapsed, 2=Hidden)
-    if pcall(function() v = w:GetVisibility() end) and type(v) == "number" then
-        return v ~= 1 and v ~= 2
-    end
-    return true
-end
 
 -- A "%" widget (used only by the F8 diagnostic tag).
 local function is_percent(t, n)
