@@ -255,8 +255,8 @@ local CE_EQUIP_Y     = tonumber(ini.ce_equip_y) or 85
 
 -- Shield/health bar nudge. Defaults to 0,0 -- the bar stays exactly where the
 -- game puts it unless the player moves it with Ctrl+Alt+Shift+Arrows.
-local CE_SHIELD_X    = tonumber(ini.ce_shield_x) or 25
-local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or -75
+local CE_SHIELD_X    = tonumber(ini.ce_shield_x) or 0
+local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or 0
 -- Grenade offsets are applied AFTER the reparent into the right-side box
 -- (see CE GRENADES RIGHT): a nudge from the box's layout spot to the screen
 -- edge. Before the reparent they stay at 0,0 -- translating them while still
