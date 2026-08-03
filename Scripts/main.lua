@@ -1536,15 +1536,28 @@ if CE_LAYOUT then
 
     local function ce_nudge(group, label, dx, dy)
         for _, t in ipairs(group) do t.x = t.x + dx; t.y = t.y + dy end
+        -- Keep the launch constants in sync. ce_grenades_right() re-applies
+        -- CE_GREN_* every time it reparents, which happens again on each HUD
+        -- rebuild (level change) -- without this, a session's grenade tuning
+        -- gets saved to the ini and then snapped back to the launch value on
+        -- the next level load. Ammo is unaffected: nothing re-applies it.
+        if label == "grenades" then
+            CE_GREN_X, CE_GREN_Y = group[1].x, group[1].y
+        end
         pcall(apply_translates)
         log(string.format("CE TUNE %s -> x=%d  y=%d", label, group[1].x, group[1].y))
         save_current()   -- tuned position survives restarts
     end
 
+    -- Guard + count, so a renamed Key enum in a future UE4SS can't silently
+    -- delete the position hotkeys (the pcall alone would swallow it).
+    local bound = 0
     local function bind_nudge(key, mods, group, label, dx, dy)
-        pcall(function()
+        if not key then return end
+        local ok = pcall(function()
             RegisterKeyBind(key, mods, function() ce_nudge(group, label, dx, dy) end)
         end)
+        if ok then bound = bound + 1 end
     end
 
     local CS = { ModifierKey.CONTROL, ModifierKey.SHIFT }
@@ -1557,6 +1570,11 @@ if CE_LAYOUT then
     bind_nudge(Key.RIGHT_ARROW, CA, gren_group, "grenades",  25,   0)
     bind_nudge(Key.UP_ARROW,    CA, gren_group, "grenades",   0, -25)
     bind_nudge(Key.DOWN_ARROW,  CA, gren_group, "grenades",   0,  25)
+    if bound == 8 then
+        log("CE position hotkeys ready (8/8): Ctrl+Shift+Arrows = ammo, Ctrl+Alt+Arrows = grenades")
+    else
+        log("WARNING: only " .. bound .. "/8 CE position hotkeys registered - arrow-key tuning is degraded")
+    end
 end
 
 RegisterKeyBind(KEY_DUMP,   function() dump_widgets() end)
