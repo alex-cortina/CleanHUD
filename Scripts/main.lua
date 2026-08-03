@@ -76,7 +76,8 @@ local function write_settings(tbl)
     f:write("# Toggles are true/false; hud_scale is a number like 0.80.\n")
     local order = { "visor_lines", "hud_scale", "hide_crosshair", "crosshair_only",
                     "show_objectives", "show_navpoints", "ce_layout",
-                    "ce_ammo_x", "ce_ammo_y", "ce_gren_x", "ce_gren_y" }
+                    "ce_ammo_x", "ce_ammo_y", "ce_gren_x", "ce_gren_y",
+                    "ce_equip_x", "ce_equip_y", "ce_shield_x", "ce_shield_y" }
     for _, k in ipairs(order) do
         if tbl[k] ~= nil then f:write(k .. "=" .. tostring(tbl[k]) .. "\n") end
     end
@@ -240,8 +241,22 @@ local CE_LAYOUT      = bool_val(ini.ce_layout, true)
 -- + rendered screenshot, 0.54 px/unit at 16:9) to match the radar's ~65px
 -- corner margin. Earlier defaults were flying blind against a shadow ini that
 -- overrode them -- see the settings-path note above.
-local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -3010
-local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -10
+-- Shipped defaults are the author's own tap-tuned 16:9 layout (both stacks
+-- pulled to the top-left, close to original CE), not computed values.
+local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -2960
+local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -60
+
+-- Ability / armour-mod icon: its OWN offset, deliberately separate from the
+-- grenades. Sharing CE_GREN_* is what pushed it off the right edge for D00gs,
+-- since the horizontal box seats it one slot further right. Tunable with
+-- Alt+Shift+Arrows.
+local CE_EQUIP_X     = tonumber(ini.ce_equip_x) or -3375
+local CE_EQUIP_Y     = tonumber(ini.ce_equip_y) or 85
+
+-- Shield/health bar nudge. Defaults to 0,0 -- the bar stays exactly where the
+-- game puts it unless the player moves it with Ctrl+Alt+Shift+Arrows.
+local CE_SHIELD_X    = tonumber(ini.ce_shield_x) or 25
+local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or -75
 -- Grenade offsets are applied AFTER the reparent into the right-side box
 -- (see CE GRENADES RIGHT): a nudge from the box's layout spot to the screen
 -- edge. Before the reparent they stay at 0,0 -- translating them while still
@@ -249,8 +264,8 @@ local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -10
 -- 375/0 was found by LIVE tap-tuning on screen, not computed: the right-side
 -- box clips somewhere between x=375 (visible, packed to the corner) and x=500
 -- (gone). Values beyond that vanish the grenades on the reference setup.
-local CE_GREN_X      = tonumber(ini.ce_gren_x) or 375
-local CE_GREN_Y      = tonumber(ini.ce_gren_y) or 0
+local CE_GREN_X      = tonumber(ini.ce_gren_x) or -3175
+local CE_GREN_Y      = tonumber(ini.ce_gren_y) or -100
 
 if CE_LAYOUT then
     TRANSLATE["weaponcradle"] = { x = CE_AMMO_X, y = CE_AMMO_Y }
@@ -267,6 +282,8 @@ if CE_LAYOUT then
     -- view. ce_grenades_right() applies the CE_GREN offsets on the move event.
     TRANSLATE["grenadecradle"] = { x = 0, y = 0 }
     TRANSLATE["equipmenticon"] = { x = 0, y = 0 }
+    -- shield/health bar: player-movable, no-op until they nudge it
+    TRANSLATE["shieldhealthbar"] = { x = CE_SHIELD_X, y = CE_SHIELD_Y }
 end
 
 -- (no master on/off key -- the mod stays on; disable the mod file to see vanilla)
@@ -313,6 +330,14 @@ local function save_current()
                     and string.format("%d", TRANSLATE["grenadecradle"].x) or nil,
         ce_gren_y = CE_LAYOUT and TRANSLATE["grenadecradle"]
                     and string.format("%d", TRANSLATE["grenadecradle"].y) or nil,
+        ce_equip_x = CE_LAYOUT and TRANSLATE["equipmenticon"]
+                    and string.format("%d", TRANSLATE["equipmenticon"].x) or nil,
+        ce_equip_y = CE_LAYOUT and TRANSLATE["equipmenticon"]
+                    and string.format("%d", TRANSLATE["equipmenticon"].y) or nil,
+        ce_shield_x = CE_LAYOUT and TRANSLATE["shieldhealthbar"]
+                    and string.format("%d", TRANSLATE["shieldhealthbar"].x) or nil,
+        ce_shield_y = CE_LAYOUT and TRANSLATE["shieldhealthbar"]
+                    and string.format("%d", TRANSLATE["shieldhealthbar"].y) or nil,
     })
     if ok then
         log("settings: saved to " .. SETTINGS_FILE)
@@ -1207,16 +1232,13 @@ local function ce_grenades_right(widgets)
             log("CEPOS grenades moved into the right-side weapon box")
         end
         if eq and move_in(eq, "equipment") then
-            -- NO corner-packing offset for the ability/equipment icon.
-            -- CE_GREN_X (375) was tap-tuned for the GRENADE cradle, which the
-            -- horizontal box places one slot to the LEFT of this widget. The
-            -- equipment icon already starts further right, so the same shove
-            -- pushed it off the screen edge entirely -- worse at higher HUD
-            -- scales, where it's wider (reported by D00gs at 1920x1080, only
-            -- visible with HUD scale at minimum). Zero keeps it inside the
-            -- box's own layout bounds, which the game guarantees is on screen.
+            -- Its OWN offset, never the grenades' -- the box seats this widget
+            -- one slot further right, so sharing CE_GREN_X pushed it off the
+            -- screen edge (D00gs, 1920x1080, only visible at minimum HUD
+            -- scale). Defaults place it under the grenade stack; Alt+Shift+
+            -- Arrows retunes it, so an off-screen result is always recoverable.
             local t = TRANSLATE["equipmenticon"]
-            if t then t.x = 0; t.y = CE_GREN_Y end
+            if t then t.x = CE_EQUIP_X; t.y = CE_EQUIP_Y end
         end
     end)
     if not okrun then ce_diag("inner error: " .. tostring(errrun)) end
@@ -1666,8 +1688,10 @@ end)
 --   Ctrl+Shift+Arrows : nudge the ammo/weapon cradle, 25 units per press
 --   Ctrl+Alt+Arrows   : nudge the grenade+equipment group
 if CE_LAYOUT then
-    local ammo_group = { TRANSLATE["weaponcradle"] }
-    local gren_group = { TRANSLATE["grenadecradle"], TRANSLATE["equipmenticon"] }
+    local ammo_group   = { TRANSLATE["weaponcradle"] }
+    local gren_group   = { TRANSLATE["grenadecradle"] }
+    local equip_group  = { TRANSLATE["equipmenticon"] }
+    local shield_group = { TRANSLATE["shieldhealthbar"] }
 
     local function ce_nudge(group, label, dx, dy)
         for _, t in ipairs(group) do t.x = t.x + dx; t.y = t.y + dy end
@@ -1678,6 +1702,8 @@ if CE_LAYOUT then
         -- the next level load. Ammo is unaffected: nothing re-applies it.
         if label == "grenades" then
             CE_GREN_X, CE_GREN_Y = group[1].x, group[1].y
+        elseif label == "ability" then
+            CE_EQUIP_X, CE_EQUIP_Y = group[1].x, group[1].y
         end
         pcall(apply_translates)
         log(string.format("CE TUNE %s -> x=%d  y=%d", label, group[1].x, group[1].y))
@@ -1705,10 +1731,21 @@ if CE_LAYOUT then
     bind_nudge(Key.RIGHT_ARROW, CA, gren_group, "grenades",  25,   0)
     bind_nudge(Key.UP_ARROW,    CA, gren_group, "grenades",   0, -25)
     bind_nudge(Key.DOWN_ARROW,  CA, gren_group, "grenades",   0,  25)
-    if bound == 8 then
-        log("CE position hotkeys ready (8/8): Ctrl+Shift+Arrows = ammo, Ctrl+Alt+Arrows = grenades")
+    local AS = { ModifierKey.ALT, ModifierKey.SHIFT }
+    bind_nudge(Key.LEFT_ARROW,  AS, equip_group, "ability",  -25,   0)
+    bind_nudge(Key.RIGHT_ARROW, AS, equip_group, "ability",   25,   0)
+    bind_nudge(Key.UP_ARROW,    AS, equip_group, "ability",    0, -25)
+    bind_nudge(Key.DOWN_ARROW,  AS, equip_group, "ability",    0,  25)
+    local CAS = { ModifierKey.CONTROL, ModifierKey.ALT, ModifierKey.SHIFT }
+    bind_nudge(Key.LEFT_ARROW,  CAS, shield_group, "shield", -25,   0)
+    bind_nudge(Key.RIGHT_ARROW, CAS, shield_group, "shield",  25,   0)
+    bind_nudge(Key.UP_ARROW,    CAS, shield_group, "shield",   0, -25)
+    bind_nudge(Key.DOWN_ARROW,  CAS, shield_group, "shield",   0,  25)
+    if bound == 16 then
+        log("CE position hotkeys ready (16/16): Ctrl+Shift=ammo, Ctrl+Alt=grenades, "
+            .. "Alt+Shift=ability icon, Ctrl+Alt+Shift=shield bar (+Arrows)")
     else
-        log("WARNING: only " .. bound .. "/8 CE position hotkeys registered - arrow-key tuning is degraded")
+        log("WARNING: only " .. bound .. "/16 CE position hotkeys registered - arrow-key tuning is degraded")
     end
 end
 
@@ -1995,44 +2032,6 @@ end
 -- via collapse + render-opacity + the SetColorAndOpacity alpha-zero, which is
 -- stable; a rare ~1-frame flash on the animated-cradle weapons is the trade-off.
 
--- TEMP DIAGNOSTIC: reserve ammo vanishing ~5-10s after load. Samples every
--- ammo text widget twice a second and logs ONLY when the STATE signature
--- changes (text is shown but excluded from the signature, so firing doesn't
--- spam). The log therefore brackets the exact moment the reserve disappears
--- and names which property moved: collapsed (vis), faded (op), or destroyed.
-local AMMO_WATCH = true
-if AMMO_WATCH then
-    local last_sig
-    LoopAsync(500, function()
-        if enabled then
-            pcall(function()
-                local sig, out = {}, {}
-                for _, t in ipairs(ammo_pool()) do
-                    if t:IsValid() then
-                        local nm = short_name(t)
-                        local n  = nm:lower()
-                        if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n)
-                           or string.find(n, "ammo", 1, true) then
-                            local vis, op = -1, -1
-                            pcall(function() vis = t:GetVisibility() end)
-                            pcall(function() op  = t:GetRenderOpacity() end)
-                            local shown = tostring(is_shown(t))
-                            sig[#sig + 1] = string.format("%s:%d:%.2f:%s", nm, vis, op, shown)
-                            out[#out + 1] = string.format("%s['%s' vis=%d op=%.2f shown=%s]",
-                                nm, widget_text(t) or "", vis, op, shown)
-                        end
-                    end
-                end
-                local s = table.concat(sig, "|")
-                if s ~= last_sig then
-                    last_sig = s
-                    log("AMMOWATCH " .. (#out > 0 and table.concat(out, "  ") or "(no ammo widgets)"))
-                end
-            end)
-        end
-        return false
-    end)
-end
 
 log("Loaded  [BUILD v2.1]  Settings persisted to settings.ini.")
 log(string.format("  visor=%s  scale=%.2f  crosshair_only=%s  hide_crosshair=%s  objectives=%s  navpoints=%s  ce_layout=%s",
