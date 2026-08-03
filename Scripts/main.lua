@@ -1035,6 +1035,105 @@ local function ce_diag(msg)
     if not ce_diag_seen[msg] then ce_diag_seen[msg] = true; log("CEPOS " .. msg) end
 end
 
+--------------------------------------------------------------------
+--  CROSSHAIR HIDE (Shift+C) -- without killing hit markers
+--
+--  Hit markers live INSIDE the reticle widget:
+--     FirstPersonReticle > WidgetTree > Hitmarkers > HitMarker_*
+--  so collapsing WBP_FirstPersonReticle takes them down too, no matter that
+--  LEAVE_TO_GAME exempts the Hitmarkers widget itself -- a collapsed ancestor
+--  hides the whole subtree. Instead keep the reticle widget alive and collapse
+--  only the branches NOT on the path to Hitmarkers (its siblings are
+--  Reticle_Image, ReticleOverlay, HeadshotReticle, Scope_Image, ScopeSlot).
+--  Hitmarkers are never force-SHOWN, so the game's own on/off setting decides
+--  whether they actually appear.
+--------------------------------------------------------------------
+
+local xhair_pruned = {}      -- addr -> { w = widget, vis = previous visibility }
+local xhair_active = false
+
+local function crosshair_prune(widgets)
+    local rt
+    for _, w in ipairs(widgets) do
+        if w:IsValid() and is_shown(w) then
+            local n = class_name(w)
+            if n and string.find(n:lower(), "wbp_firstpersonreticle_c", 1, true)
+               and not string.find(short_name(w):lower(), "default__", 1, true) then
+                rt = w; break
+            end
+        end
+    end
+    if not rt then return end
+
+    local root
+    pcall(function()
+        local wt = rt.WidgetTree
+        if wt and wt:IsValid() then root = wt.RootWidget end
+    end)
+    if not root or not root:IsValid() then return end
+
+    local hm
+    local function locate(w, depth)
+        if hm or not w or not w:IsValid() or depth > 12 then return end
+        if string.find(short_name(w):lower(), "hitmarker", 1, true) then hm = w; return end
+        local ok, cnt = pcall(function() return w:GetChildrenCount() end)
+        if ok and type(cnt) == "number" then
+            for i = 0, cnt - 1 do
+                local c; pcall(function() c = w:GetChildAt(i) end)
+                locate(c, depth + 1)
+            end
+        end
+    end
+    locate(root, 0)
+    -- No hit-marker subtree (game may not have built it): fall back to hiding
+    -- the whole reticle rather than leaving the crosshair on screen.
+    if not hm then set_vis(rt, VIS_COLLAPSED); xhair_active = true; return end
+
+    local keep = {}
+    local cur = hm
+    while cur and cur:IsValid() do
+        local a; pcall(function() a = cur:GetAddress() end)
+        if a then keep[a] = true end
+        local p; pcall(function() p = cur:GetParent() end)
+        cur = p
+    end
+
+    local function prune(w, depth)
+        if not w or not w:IsValid() or depth > 12 then return end
+        local a; pcall(function() a = w:GetAddress() end)
+        if a and not keep[a] then
+            if not xhair_pruned[a] then
+                local pv; pcall(function() pv = w:GetVisibility() end)
+                xhair_pruned[a] = { w = w, vis = pv }
+            end
+            set_vis(w, VIS_COLLAPSED)
+            return          -- branch gone; no need to descend
+        end
+        local ok, cnt = pcall(function() return w:GetChildrenCount() end)
+        if ok and type(cnt) == "number" then
+            for i = 0, cnt - 1 do
+                local c; pcall(function() c = w:GetChildAt(i) end)
+                prune(c, depth + 1)
+            end
+        end
+    end
+    prune(root, 0)
+    xhair_active = true
+end
+
+local function crosshair_unprune()
+    if not xhair_active then return end
+    for _, rec in pairs(xhair_pruned) do
+        pcall(function()
+            if rec.w:IsValid() then
+                rec.w:SetVisibility(rec.vis ~= nil and rec.vis or VIS_VISIBLE)
+            end
+        end)
+    end
+    xhair_pruned = {}
+    xhair_active = false
+end
+
 local function ce_grenades_right(widgets)
     if not CE_LAYOUT then return end
 
@@ -1125,8 +1224,13 @@ local function apply()
                 elseif matches_any(lname, NEVER_TOUCH) then
                     -- container: leave visible, but hide its baked-in pieces
                 elseif matches_any(lname, keep_list) then
-                    -- Shift+C: hide the reticle even though it's a keeper
-                    if hide_crosshair and string.find(lname, "reticle", 1, true) then
+                    -- Shift+C: hide the reticle even though it's a keeper.
+                    -- EXCEPT WBP_FirstPersonReticle itself -- the hit markers
+                    -- are inside it, so it stays alive and gets pruned instead
+                    -- (see CROSSHAIR HIDE above). The per-weapon scope widgets
+                    -- still collapse here; they're the visible crosshair.
+                    if hide_crosshair and string.find(lname, "reticle", 1, true)
+                       and not string.find(lname, "wbp_firstpersonreticle", 1, true) then
                         set_vis(w, VIS_COLLAPSED); hidden = hidden + 1
                     else
                         kept = kept + 1
@@ -1152,6 +1256,15 @@ local function apply()
     -- nav marker backing box -> transparent (see NAV MARKER BACKING BOX above)
     local okn, en = pcall(hide_nav_borders)
     if not okn then log("nav-border error: " .. tostring(en)) end
+
+    -- Shift+C: prune the crosshair's own branches but keep the hit-marker
+    -- subtree intact, so the game's hit-marker setting still applies
+    if hide_crosshair then
+        local okx, ex = pcall(crosshair_prune, widgets)
+        if not okx then log("crosshair-prune error: " .. tostring(ex)) end
+    else
+        pcall(crosshair_unprune)
+    end
 
     -- CE layout: grenades + equipment live in the right-side weapon box
     local okg, eg = pcall(ce_grenades_right, widgets)
