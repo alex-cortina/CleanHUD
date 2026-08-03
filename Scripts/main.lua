@@ -99,6 +99,15 @@ end
 
 local KEEP_VISOR_LINES = bool_val(ini.visor_lines, false)
 local NEVER_TOUCH = { "wbp_hud_main" }
+
+-- HANDS OFF: elements the mod must never show OR hide, in any mode, so the
+-- GAME's own settings control them. Hit markers live under /Game/UI/Hud/ and
+-- so were being collapsed every pass just for not being on the keep list --
+-- which also stomped the game's built-in "disable hit markers" option
+-- whenever it tried to show them. Unlike KEEP (skipped by apply, but still
+-- force-shown by restore_all and hidden in crosshair-only), this list is
+-- checked FIRST everywhere and means genuinely untouched.
+local LEAVE_TO_GAME = { "hitmarker" }
 local KEEP = {
     "shieldhealthbar", "motiontracker", "weaponcradle",
     "grenadecradle", "reticle", "interactprompt",
@@ -1111,7 +1120,9 @@ local function apply()
             local name = class_name(w)
             if is_hud(name) then
                 local lname = name:lower()
-                if matches_any(lname, NEVER_TOUCH) then
+                if matches_any(lname, LEAVE_TO_GAME) then
+                    -- hands off entirely -- the game owns this one
+                elseif matches_any(lname, NEVER_TOUCH) then
                     -- container: leave visible, but hide its baked-in pieces
                 elseif matches_any(lname, keep_list) then
                     -- Shift+C: hide the reticle even though it's a keeper
@@ -1286,7 +1297,10 @@ local function restore_all()
                 -- the game keeps those hidden during play, so force-showing them
                 -- on mod-off produced ugly black boxes vanilla never displays.
                 -- Restore everything else (real HUD + the visor frame).
-                if matches_any(ln, EXTRA_HIDE) then
+                if matches_any(ln, LEAVE_TO_GAME) then
+                    -- hands off: don't force-show what the game may be
+                    -- deliberately hiding (e.g. hit markers turned off)
+                elseif matches_any(ln, EXTRA_HIDE) then
                     -- leave hidden -- this is what vanilla actually looks like
                 elseif is_hud(n) or matches_any(ln, VISOR_EXTRA) then
                     set_vis(w, VIS_VISIBLE)
@@ -1671,7 +1685,9 @@ NotifyOnNewObject("/Script/UMG.UserWidget", function(widget)
         clear_reticle_cache()
     end
     if is_hud(name) then
-        if (not matches_any(lname, NEVER_TOUCH)) and (not matches_any(lname, current_keep())) then
+        if (not matches_any(lname, LEAVE_TO_GAME))
+           and (not matches_any(lname, NEVER_TOUCH))
+           and (not matches_any(lname, current_keep())) then
             ExecuteWithDelay(50, function() set_vis(widget, VIS_COLLAPSED) end)
         end
     elseif matches_any(lname, EXTRA_HIDE)
