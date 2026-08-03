@@ -108,6 +108,15 @@ local NEVER_TOUCH = { "wbp_hud_main" }
 -- force-shown by restore_all and hidden in crosshair-only), this list is
 -- checked FIRST everywhere and means genuinely untouched.
 local LEAVE_TO_GAME = { "hitmarker" }
+
+-- Hide these even though a KEEP entry matches them. WBP_AmmoPickupBanner is
+-- double-claimed by accident: it sits in the /WeaponCradle/ FOLDER (matching
+-- the "weaponcradle" keeper) and has "banner" in its name (matching the
+-- checkpoint-banner keeper) -- but neither entry was meant for the little
+-- pop-up badge that flashes on an ammo/grenade pickup. Matched precisely so
+-- WBP_Banner and WBP_BannerPanel (real checkpoint notifications) still show.
+-- Checked BEFORE the keep list everywhere.
+local HUD_FORCE_HIDE = { "ammopickupbanner" }
 local KEEP = {
     "shieldhealthbar", "motiontracker", "weaponcradle",
     "grenadecradle", "reticle", "interactprompt",
@@ -1198,8 +1207,16 @@ local function ce_grenades_right(widgets)
             log("CEPOS grenades moved into the right-side weapon box")
         end
         if eq and move_in(eq, "equipment") then
+            -- NO corner-packing offset for the ability/equipment icon.
+            -- CE_GREN_X (375) was tap-tuned for the GRENADE cradle, which the
+            -- horizontal box places one slot to the LEFT of this widget. The
+            -- equipment icon already starts further right, so the same shove
+            -- pushed it off the screen edge entirely -- worse at higher HUD
+            -- scales, where it's wider (reported by D00gs at 1920x1080, only
+            -- visible with HUD scale at minimum). Zero keeps it inside the
+            -- box's own layout bounds, which the game guarantees is on screen.
             local t = TRANSLATE["equipmenticon"]
-            if t then t.x = CE_GREN_X; t.y = CE_GREN_Y end
+            if t then t.x = 0; t.y = CE_GREN_Y end
         end
     end)
     if not okrun then ce_diag("inner error: " .. tostring(errrun)) end
@@ -1221,6 +1238,9 @@ local function apply()
                 local lname = name:lower()
                 if matches_any(lname, LEAVE_TO_GAME) then
                     -- hands off entirely -- the game owns this one
+                elseif matches_any(lname, HUD_FORCE_HIDE) then
+                    -- hide despite a KEEP entry matching it by folder/name
+                    set_vis(w, VIS_COLLAPSED); hidden = hidden + 1
                 elseif matches_any(lname, NEVER_TOUCH) then
                     -- container: leave visible, but hide its baked-in pieces
                 elseif matches_any(lname, keep_list) then
@@ -1413,6 +1433,8 @@ local function restore_all()
                 if matches_any(ln, LEAVE_TO_GAME) then
                     -- hands off: don't force-show what the game may be
                     -- deliberately hiding (e.g. hit markers turned off)
+                elseif matches_any(ln, HUD_FORCE_HIDE) then
+                    -- stays hidden through a restore, same as EXTRA_HIDE
                 elseif matches_any(ln, EXTRA_HIDE) then
                     -- leave hidden -- this is what vanilla actually looks like
                 elseif is_hud(n) or matches_any(ln, VISOR_EXTRA) then
@@ -1816,9 +1838,11 @@ NotifyOnNewObject("/Script/UMG.UserWidget", function(widget)
         clear_reticle_cache()
     end
     if is_hud(name) then
-        if (not matches_any(lname, LEAVE_TO_GAME))
-           and (not matches_any(lname, NEVER_TOUCH))
-           and (not matches_any(lname, current_keep())) then
+        if matches_any(lname, LEAVE_TO_GAME) then
+            -- hands off
+        elseif matches_any(lname, HUD_FORCE_HIDE)
+            or ((not matches_any(lname, NEVER_TOUCH))
+                and (not matches_any(lname, current_keep()))) then
             ExecuteWithDelay(50, function() set_vis(widget, VIS_COLLAPSED) end)
         end
     elseif matches_any(lname, EXTRA_HIDE)
