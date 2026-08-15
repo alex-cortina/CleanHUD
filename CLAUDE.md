@@ -56,3 +56,6 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
   to a fast loop (budget: <15 full-array scans/sec total).
 - Commit when something is CONFIRMED working in game, not when it compiles.
 - Versioning happens on Nexus at upload; no git tags or version bumps.
+- Every user-visible change gets a bullet in CHANGELOG.md's Unreleased section
+  in the same commit. At upload, the user pastes that section into Nexus and
+  retitles it with the version the upload gets.
