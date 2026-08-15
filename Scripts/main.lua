@@ -134,10 +134,10 @@ local SCALE_TARGETS = {
     "grenadecradle", "equipmenticon",
 }
 
--- Default HUD size on startup = 0.80x. remake HUD is ~20% 
--- chunkier than classic CE according to AI calculations 
--- when comparing screenshots.
-local HUD_SCALE      = tonumber(ini.hud_scale) or 0.80
+-- Default HUD size on startup = 0.75x. The remake's HUD is noticeably chunkier
+-- than classic CE; 0.75 is the author's own setting, arrived at by eye in game
+-- alongside the CE layout offsets below.
+local HUD_SCALE      = tonumber(ini.hud_scale) or 0.75
 local HUD_SCALE_MIN  = 0.50 
 local HUD_SCALE_MAX  = 1.50 
 local HUD_SCALE_STEP = 0.05
@@ -250,7 +250,7 @@ local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -60
 -- grenades. Sharing CE_GREN_* is what pushed it off the right edge for D00gs,
 -- since the horizontal box seats it one slot further right. Tunable with
 -- Alt+Shift+Arrows.
-local CE_EQUIP_X     = tonumber(ini.ce_equip_x) or -3375
+local CE_EQUIP_X     = tonumber(ini.ce_equip_x) or -3425
 local CE_EQUIP_Y     = tonumber(ini.ce_equip_y) or 85
 
 -- Shield/health bar nudge. Defaults to 0,0 -- the bar stays exactly where the
