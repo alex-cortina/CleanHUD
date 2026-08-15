@@ -6,9 +6,12 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
 ## THE TRAPS (each of these cost hours — check them first)
 
 1. **Two copies of this mod exist. The game runs the OTHER one.**
-   - This folder (Desktop) = git repo / working copy.
+   - `C:\dev\CleanHUD\` = git repo / working copy. **THIS folder.**
    - `F:\SteamLibrary\steamapps\common\Halo Campaign Evolved\Meteorite\Binaries\Win64\ue4ss\Mods\CleanHUD\` = what the game loads.
    - Edit the game copy, then `cp` it here to commit. If a fix "does nothing," diff the two files before theorizing.
+   - **RETIRED:** `C:\Users\User1\OneDrive\Desktop\CleanHUD\` was the old working
+     copy. Do not edit or commit there — it is a stale clone of the same remote
+     and editing it is a silent no-op, the exact failure this trap describes.
 
 2. **The live settings.ini may not be where you think.**
    - Proper (current builds): `...\Win64\ue4ss\Mods\CleanHUD\settings.ini`
