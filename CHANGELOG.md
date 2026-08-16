@@ -28,14 +28,15 @@ retitle it with whatever version number the upload gets.
   (2fd7a26)
 
 ### Added
-- Compatibility with KeyBrute's "2001 Shield HUD" mod: when it is installed
-  and enabled, CleanHUD automatically stands down on everything that mod owns
-  -- it reskins the stock widgets in place, so shield meter, ammo readout, HUD
-  element positions and scaling all belong to it (adjust via its tuning.txt).
-  CleanHUD keeps decluttering, nav/objective/crosshair/visor toggles, and its
-  settings. Your CE-layout preference is remembered and returns automatically
-  if that mod is removed. Known trade-off with both mods: no top visor wire in
-  crosshair-only mode.
+- Compatibility with KeyBrute's "2001 Shield HUD" mod: with both mods
+  enabled, that mod owns the ARTWORK (its 2001 shield/health meter, its CE
+  ammo styling) and CleanHUD owns the LAYOUT (positions, toggles,
+  decluttering). CleanHUD stops hiding the widgets its meter is painted on,
+  and suppresses its own mirroring/scaling/ammo styling, which would mangle
+  the painted textures. Position both mods' shared elements with CleanHUD's
+  arrow keys, and consider zeroing the cluster_* offsets in that mod's
+  tuning.txt so only one mod positions things. Its "x" ammo separator is its
+  own CE feature -- toggle via ammo_ce_style in its tuning.txt.
 - Ctrl + Shift + O — instantly toggle between the classic-CE layout (ammo
   top-left, the default) and the original arrangement (ammo top-right at the
   game's own position). Your choice is remembered across sessions, and your

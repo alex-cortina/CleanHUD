@@ -207,6 +207,15 @@ local EXTRA_HIDE = {
     "hudwidgetbacker",  -- the opaque black backing boxes (always hidden - ugly)
     "wbp_metu_divider", -- divider lines (always hidden)
 }
+if CLASSIC_SHIELD_HUD then
+    -- THE decisive collision with the 2001 Shield HUD, found via its log
+    -- ("pin backer"/"pin visor", 496x184 brush): that mod PAINTS its shield
+    -- meter onto WBP_HudWidgetBacker + VisorOverlayImage -- the exact widgets
+    -- this list exists to suppress. Our once-a-second collapse was erasing its
+    -- meter forever (paint succeeded, canvas hidden). Cede the backers to it;
+    -- it hides the ugly cradle backers itself. Divider stays ours.
+    EXTRA_HIDE = { "wbp_metu_divider" }
+end
 
 -- Internal pieces (inside WBP_HUD_Main / keepers) to hide by name. Substrings,
 -- case-insensitive, matched against each internal widget's instance name AND
@@ -273,13 +282,11 @@ local CE_LAYOUT      = bool_val(ini.ce_layout, true)
 -- it in the ini: with the 2001 Shield HUD active we force the layout off for
 -- the session (below), but the preference must survive that mod being removed.
 local CE_LAYOUT_PREF = CE_LAYOUT
-if CLASSIC_SHIELD_HUD then
-    -- v2 lesson, learned on screen: that mod RESKINS the stock widgets in
-    -- place (SetBrush) rather than drawing its own -- its CE ammo readout IS
-    -- the stock weapon cradle. Mirroring/translating the cradle therefore
-    -- mangles its readout, so the whole CE layout stands down while it's active.
-    CE_LAYOUT = false
-end
+-- (Compat with the 2001 Shield HUD no longer forces the layout off: since
+-- that mod PAINTS onto the stock widgets, its artwork travels with plain
+-- translation. Only the mirror and scale mangle it -- both are suppressed
+-- under compat inside apply_hud_scale -- so CleanHUD keeps its positioning
+-- and that mod keeps its artwork.)
 -- Offsets are PER-USER: the effective distance depends on the player's in-game
 -- HUD scale and aspect ratio, so there is no single correct constant. (The
 -- "correct by default" alternatives were tried and are dead ends in UE4SS:
@@ -347,15 +354,6 @@ end
 -- tables at registration, which now happens in every mode for the live toggle.
 TRANSLATE["shieldhealthbar"] = { x = CE_SHIELD_X, y = CE_SHIELD_Y }
 
-if CLASSIC_SHIELD_HUD then
-    -- cede ALL positioning: even the classic +/-70 tucks fight that mod's
-    -- tuning.txt placement of the same reskinned widgets. Mutate fields (the
-    -- hotkey groups hold references to these tables).
-    for _, k in ipairs({ "weaponcradle", "grenadecradle", "equipmenticon", "shieldhealthbar" }) do
-        local t = TRANSLATE[k]
-        if t then t.x = 0; t.y = 0 end
-    end
-end
 
 -- (no master on/off key -- the mod stays on; disable the mod file to see vanilla)
 -- Crosshair-only mode uses a modifier combo so NOTHING else can collide with it.
@@ -1546,7 +1544,10 @@ local function apply_hud_scale()
     -- toggle (Ctrl+Shift+O) un-mirrors the cradle live, and the text must
     -- actively un-flip with it or the digits render backwards in the original
     -- arrangement.
-    local tx = CE_LAYOUT and -1.0 or 1.0
+    -- No flip under 2001 Shield HUD compat: SCALE_TARGETS is emptied there, so
+    -- the cradle itself never gets the mirroring RenderScale -- flipped text on
+    -- an unflipped cradle would render backwards.
+    local tx = (CE_LAYOUT and not CLASSIC_SHIELD_HUD) and -1.0 or 1.0
     for _, t in ipairs(ammo_pool()) do
         if t:IsValid() then
             local n = short_name(t):lower()
@@ -1828,10 +1829,6 @@ end)
 -- inside apply_hud_scale, and ce_grenades_right() picks the flag up live if
 -- the CE layout is enabled mid-session. Persists as ce_layout.
 RegisterKeyBind(Key.O, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function()
-    if CLASSIC_SHIELD_HUD then
-        log("Layout toggle unavailable: the 2001 Shield HUD owns the cradle positions while active.")
-        return
-    end
     local ok, err = pcall(function()
         CE_LAYOUT = not CE_LAYOUT
         CE_LAYOUT_PREF = CE_LAYOUT
@@ -1865,13 +1862,6 @@ do
     local shield_group = { TRANSLATE["shieldhealthbar"] }
 
     local function ce_nudge(group, label, dx, dy)
-        -- With the 2001 Shield HUD active its tuning.txt owns every position,
-        -- and a nudge here would corrupt saved CleanHUD offsets while fighting
-        -- that mod's placement. All groups blocked, shield included.
-        if CLASSIC_SHIELD_HUD then
-            log("CE TUNE unavailable: position the HUD via the 2001 Shield HUD's tuning.txt while it is active.")
-            return
-        end
         -- In the original arrangement the cradle offsets aren't applied, so a
         -- nudge would silently corrupt the SAVED CE positions while moving
         -- nothing on screen. Shield is exempt: it applies in both layouts.
@@ -2285,10 +2275,10 @@ log("Ctrl+Shift+N=objectives+waypoints, Shift+N=waypoints only, Shift+C=crosshai
 log(string.format("Layout: %s -- Ctrl+Shift+O toggles classic-CE vs original arrangement.",
     CE_LAYOUT and "classic CE (ammo top-left)" or "original (ammo top-right)"))
 if CLASSIC_SHIELD_HUD then
-    log("2001 Shield HUD detected: compatibility mode ON. That mod reskins the stock")
-    log("  widgets in place, so it owns ALL presentation: shield meter, ammo readout,")
-    log("  positions and scaling (its tuning.txt). CleanHUD keeps decluttering and")
-    log("  toggles; CE layout, OG ammo, element scaling and position binds stand down.")
+    log("2001 Shield HUD detected: compatibility mode ON. That mod owns the ARTWORK")
+    log("  (shield meter on the backer/visor widgets, CE ammo styling); CleanHUD owns")
+    log("  LAYOUT (positions, toggles, decluttering). Mirror/scale/OG-ammo stand down")
+    log("  since they would mangle that mod's painted textures.")
 end
 if CE_LAYOUT then
     log("CE layout ON: Ctrl+Shift+Arrows move the ammo cradle, Ctrl+Alt+Arrows move grenades (saved).")
