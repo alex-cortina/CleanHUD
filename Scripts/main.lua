@@ -328,10 +328,11 @@ local CE_LAYOUT_PREF = CE_LAYOUT
 -- + rendered screenshot, 0.54 px/unit at 16:9) to match the radar's ~65px
 -- corner margin. Earlier defaults were flying blind against a shadow ini that
 -- overrode them -- see the settings-path note above.
--- Shipped defaults are the author's own tap-tuned 16:9 layout (both stacks
--- pulled to the top-left, close to original CE), not computed values.
-local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -2960
-local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -60
+-- 2001 EDITION (shield-hud-2001 branch): shipped defaults are the author's
+-- tap-tuned 16:9 layout for running ALONGSIDE KeyBrute's "2001 Shield HUD"
+-- (ammo/grenades top-left, his shield meter placed top-right like real CE).
+local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -2985
+local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -35
 -- The ORIGINAL arrangement gets its own persisted ammo offsets, so the
 -- Ctrl+Shift+WASD keys work in BOTH arrangements with no mode caveat (the
 -- published keybind list promises "moves the ammo counter", unconditionally).
@@ -343,13 +344,14 @@ local OG_AMMO_Y      = tonumber(ini.og_ammo_y) or 45
 -- grenades. Sharing CE_GREN_* is what pushed it off the right edge for D00gs,
 -- since the horizontal box seats it one slot further right. Tunable with
 -- Ctrl+Alt+I/J/L/M.
-local CE_EQUIP_X     = tonumber(ini.ce_equip_x) or -3425
+local CE_EQUIP_X     = tonumber(ini.ce_equip_x) or -3375
 local CE_EQUIP_Y     = tonumber(ini.ce_equip_y) or 85
 
--- Shield/health bar nudge. Defaults to 0,0 -- the bar stays exactly where the
--- game puts it unless the player moves it with Alt+Shift+I/J/L/M.
-local CE_SHIELD_X    = tonumber(ini.ce_shield_x) or 0
-local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or 0
+-- Shield/health bar nudge. 2001 Edition default carries the meter from the
+-- game's top-centre to CE's top-RIGHT (with the 2001 Shield HUD's cluster_*
+-- offsets zeroed, so only this mod positions it). Alt+Shift+I/J/L/M to move.
+local CE_SHIELD_X    = tonumber(ini.ce_shield_x) or 1625
+local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or 50
 -- Grenade offsets are applied AFTER the reparent into the right-side box
 -- (see CE GRENADES RIGHT): a nudge from the box's layout spot to the screen
 -- edge. Before the reparent they stay at 0,0 -- translating them while still
@@ -357,8 +359,8 @@ local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or 0
 -- 375/0 was found by LIVE tap-tuning on screen, not computed: the right-side
 -- box clips somewhere between x=375 (visible, packed to the corner) and x=500
 -- (gone). Values beyond that vanish the grenades on the reference setup.
-local CE_GREN_X      = tonumber(ini.ce_gren_x) or -3175
-local CE_GREN_Y      = tonumber(ini.ce_gren_y) or -100
+local CE_GREN_X      = tonumber(ini.ce_gren_x) or -3050
+local CE_GREN_Y      = tonumber(ini.ce_gren_y) or 125
 
 if CE_LAYOUT then
     TRANSLATE["weaponcradle"] = { x = CE_AMMO_X, y = CE_AMMO_Y }
@@ -1873,11 +1875,11 @@ end)
 RegisterKeyBind(Key.R, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function()
     local ok, err = pcall(function()
         -- shipped defaults (mirror the declaration constants above)
-        CE_AMMO_X, CE_AMMO_Y   = -2960, -60
+        CE_AMMO_X, CE_AMMO_Y   = -2985, -35
         OG_AMMO_X, OG_AMMO_Y   = 70, 45
-        CE_GREN_X, CE_GREN_Y   = -3175, -100
-        CE_EQUIP_X, CE_EQUIP_Y = -3425, 85
-        CE_SHIELD_X, CE_SHIELD_Y = 0, 0
+        CE_GREN_X, CE_GREN_Y   = -3050, 125
+        CE_EQUIP_X, CE_EQUIP_Y = -3375, 85
+        CE_SHIELD_X, CE_SHIELD_Y = 1625, 50
         local wt = TRANSLATE["weaponcradle"]
         if wt then
             if CE_LAYOUT then wt.x, wt.y = CE_AMMO_X, CE_AMMO_Y

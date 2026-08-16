@@ -6,6 +6,13 @@ retitle it with whatever version number the upload gets.
 
 ## Unreleased
 
+### 2001 Edition (this file only)
+- Shipped defaults are pre-tuned for running alongside KeyBrute's "2001
+  Shield HUD": ammo and grenades top-left, its shield/health meter carried
+  to the top-right like real CE. Works out of the box with that mod's
+  cluster_* offsets zeroed in its tuning.txt, so only one mod positions
+  things. All positions still tunable with the hotkeys below.
+
 ### Fixed
 - Hit markers now work while the crosshair is hidden with Shift+C. They live
   inside the reticle widget, so hiding the crosshair used to take them down
