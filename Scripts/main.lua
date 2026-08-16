@@ -333,7 +333,7 @@ local CE_LAYOUT_PREF = CE_LAYOUT
 local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -2960
 local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -60
 -- The ORIGINAL arrangement gets its own persisted ammo offsets, so the
--- Ctrl+Shift+Arrow keys work in BOTH arrangements with no mode caveat (the
+-- Ctrl+Shift+WASD keys work in BOTH arrangements with no mode caveat (the
 -- published keybind list promises "moves the ammo counter", unconditionally).
 -- Defaults are the classic corner tuck the original arrangement always used.
 local OG_AMMO_X      = tonumber(ini.og_ammo_x) or 70
@@ -342,12 +342,12 @@ local OG_AMMO_Y      = tonumber(ini.og_ammo_y) or 45
 -- Ability / armour-mod icon: its OWN offset, deliberately separate from the
 -- grenades. Sharing CE_GREN_* is what pushed it off the right edge for D00gs,
 -- since the horizontal box seats it one slot further right. Tunable with
--- Alt+Shift+Arrows.
+-- Ctrl+Alt+I/J/L/M.
 local CE_EQUIP_X     = tonumber(ini.ce_equip_x) or -3425
 local CE_EQUIP_Y     = tonumber(ini.ce_equip_y) or 85
 
 -- Shield/health bar nudge. Defaults to 0,0 -- the bar stays exactly where the
--- game puts it unless the player moves it with Ctrl+Alt+Shift+Arrows.
+-- game puts it unless the player moves it with Alt+Shift+I/J/L/M.
 local CE_SHIELD_X    = tonumber(ini.ce_shield_x) or 0
 local CE_SHIELD_Y    = tonumber(ini.ce_shield_y) or 0
 -- Grenade offsets are applied AFTER the reparent into the right-side box
