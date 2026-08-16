@@ -99,6 +99,41 @@ else
     log("settings: no saved settings found, using defaults (will save on first toggle)")
 end
 
+--------------------------------------------------------------------
+--  2001 SHIELD HUD COMPATIBILITY (KeyBrute's mod, Nexus #245)
+--
+--  That mod redraws the classic CE shield/health meter and its own CE-style
+--  "x36" ammo readout, hiding the stock widgets it replaces -- several of
+--  which CleanHUD also drives, with enforcement loops on both sides:
+--    * VisorOverlayImage: their hide_visor tuning vs our visor toggle
+--    * the shield bar tree: they hide stock meter pieces; our crosshair-mode
+--      prune force-shows the host every second
+--    * the ammo text blocks: they hide the reserve to draw their own readout;
+--      our OG-ammo drives the same blocks at 16ms plus a colour hook
+--  When their mod is installed AND enabled, CleanHUD cedes those subsystems:
+--  OG ammo off, VisorOverlayImage untouched, shield prune skipped. Everything
+--  non-contested (layout, declutter, toggles) keeps working.
+--------------------------------------------------------------------
+
+local function classic_shield_hud_enabled()
+    -- installed?
+    local f = io.open("ue4ss/Mods/HaloCEClassicHud/Scripts/main.lua", "r")
+    if not f then return false end
+    f:close()
+    -- enabled? (either mechanism UE4SS supports)
+    local en = io.open("ue4ss/Mods/HaloCEClassicHud/enabled.txt", "r")
+    if en then en:close(); return true end
+    local mt = io.open("ue4ss/Mods/mods.txt", "r")
+    if mt then
+        for line in mt:lines() do
+            if line:match("^%s*HaloCEClassicHud%s*:%s*1") then mt:close(); return true end
+        end
+        mt:close()
+    end
+    return false
+end
+local CLASSIC_SHIELD_HUD = classic_shield_hud_enabled()
+
 local KEEP_VISOR_LINES = bool_val(ini.visor_lines, false)
 local NEVER_TOUCH = { "wbp_hud_main" }
 
@@ -184,6 +219,11 @@ local CHILD_HIDE = {
 -- frame plus the wires/sweeps. The black backer boxes stay hidden (see EXTRA_HIDE).
 local VISOR_EXTRA = { "frameborder" }
 local VISOR_CHILD = { "bottomwires", "artifactshud", "visoroverlayimage" }
+if CLASSIC_SHIELD_HUD then
+    -- the 2001 Shield HUD's hide_visor tuning owns VisorOverlayImage; driving
+    -- it from both mods' enforcement loops produces a visibility flicker war
+    VISOR_CHILD = { "bottomwires", "artifactshud" }
+end
 
 -- The persistent HUD button-prompt glyphs (equipment "G", etc.) are
 -- WBP_MetUI_ActionWidget - the SAME class as the world pickup/interact glyph,
@@ -720,7 +760,10 @@ end
 --  which is the only flicker-free way to do it at runtime.
 --------------------------------------------------------------------
 
-local OG_AMMO = true               -- ON: OG-style ammo on AR/pistol (mag+"/" hidden,
+-- Ceded to the 2001 Shield HUD when present: its CE-style "x36" readout hides
+-- the reserve block we brighten and the separator we blank -- two mods driving
+-- the same text widgets in opposite directions, ours on a 16ms loop.
+local OG_AMMO = not CLASSIC_SHIELD_HUD  -- ON: OG-style ammo on AR/pistol (mag+"/" hidden,
                                    -- reserve kept). Charge weapons (plasma/beam) left intact.
 local RESERVE_HIJACK  = true       -- brighten the faded reserve by intercepting the game's
                                    -- OWN color set and swapping dim->bright before it runs,
@@ -1389,9 +1432,15 @@ local function apply()
             end
         end
         walk_hud("showvisor")
-        -- TOP wire: empty the shield bar down to just VisorOverlayImage
-        local okp, ep = pcall(prune_host, widgets)
-        if not okp then log("visor-prune error: " .. tostring(ep)) end
+        -- TOP wire: empty the shield bar down to just VisorOverlayImage.
+        -- Skipped when the 2001 Shield HUD owns that widget's tree: the prune
+        -- force-shows the shield host every pass, which would fight the stock
+        -- meter pieces that mod deliberately hides. (Trade-off: with both mods
+        -- installed, no top visor wire in crosshair-only mode.)
+        if not CLASSIC_SHIELD_HUD then
+            local okp, ep = pcall(prune_host, widgets)
+            if not okp then log("visor-prune error: " .. tostring(ep)) end
+        end
     else
         -- leaving the mode: put the shield bar's internals back how they were
         pcall(unprune_host)
@@ -2196,6 +2245,10 @@ log("HUD SCALE: Ctrl+Shift+- =smaller, Ctrl+Shift++ =bigger, Ctrl+Shift+K=reset 
 log("Ctrl+Shift+N=objectives+waypoints, Shift+N=waypoints only, Shift+C=crosshair.")
 log(string.format("Layout: %s -- Ctrl+Shift+O toggles classic-CE vs original arrangement.",
     CE_LAYOUT and "classic CE (ammo top-left)" or "original (ammo top-right)"))
+if CLASSIC_SHIELD_HUD then
+    log("2001 Shield HUD detected: compatibility mode ON (that mod owns the shield meter,")
+    log("  visor overlay and ammo readout; CleanHUD's OG-ammo styling is disabled).")
+end
 if CE_LAYOUT then
     log("CE layout ON: Ctrl+Shift+Arrows move the ammo cradle, Ctrl+Alt+Arrows move grenades (saved).")
 end
