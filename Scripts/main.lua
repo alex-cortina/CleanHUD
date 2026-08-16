@@ -925,6 +925,24 @@ local function ammo_pool()
     return pool
 end
 
+-- The pool comment above calls the text blocks persistent, and the main
+-- HUD's are -- but the weapon cradle builds FRESH number blocks on some
+-- weapon swaps, and those stayed invisible to every pool user for up to a
+-- full refresh interval (~256ms, landing anywhere in the cycle). Visible as
+-- mirror-reversed reserve digits for a variable split second after swapping
+-- in the CE layout. Event-driven patch, zero extra scans: append brand-new
+-- blocks to the LIVE cache the moment the game constructs them, so the fast
+-- loop styles them on its very next 16ms tick. The periodic rebuild still
+-- prunes stale entries.
+for _, cls in ipairs({ "/Script/HaloUI.HaloUINumericTextBlock",
+                       "/Script/HaloUI.HaloUITextBlock" }) do
+    pcall(function()
+        NotifyOnNewObject(cls, function(obj)
+            if pool_cache then pool_cache[#pool_cache + 1] = obj end
+        end)
+    end)
+end
+
 local function is_slash(t, n) return SLASH_NAMES[n] == true end
 
 local function has_digit(s) return s ~= nil and string.find(s, "%d") ~= nil end
@@ -1487,6 +1505,32 @@ end
 -- each piece scales in place and stays anchored to its corner. Same crash-safe flat
 -- {X,Y} vector marshal apply_translates uses. Applied every enforce pass so it
 -- persists, and immediately on a hotkey change.
+-- Counter-flip the ammo text blocks inside the mirrored cradle: a second
+-- X=-1 mirror cancels the parent's, so digits render un-reversed. Applies
+-- to mag + reserve + separator (mag holds the visible "NN%" on charge
+-- weapons, so it needs the fix too even though it's hidden on ballistics).
+-- Text flip tracks the cradle mirror exactly (see the sx gate in
+-- apply_hud_scale): mirrored cradle needs counter-flipped text; unmirrored
+-- needs upright. Split out of apply_hud_scale because the game RESTYLES
+-- these blocks on every ammo change (weapon swaps included), stomping the
+-- flip -- so the fast loop below also reasserts it every frame while the
+-- mirror is active, instead of leaving the digits reversed for up to two
+-- 1s enforce ticks.
+local function apply_text_flip()
+    local tx = (CE_LAYOUT and not CLASSIC_OWNS_AMMO) and -1.0 or 1.0
+    for _, t in ipairs(ammo_pool()) do
+        if t:IsValid() then
+            local n = short_name(t):lower()
+            if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n) then
+                pcall(function()
+                    t:SetRenderTransformPivot({ X = 0.5, Y = 0.5 })
+                    t:SetRenderScale({ X = tx, Y = 1.0 })
+                end)
+            end
+        end
+    end
+end
+
 local function apply_hud_scale()
     local widgets = FindAllOf("UserWidget")
     if not widgets then return end
@@ -1521,28 +1565,12 @@ local function apply_hud_scale()
         end
     end
 
-    -- Counter-flip the ammo text blocks inside the mirrored cradle: a second
-    -- X=-1 mirror cancels the parent's, so digits render un-reversed. Applies
-    -- to mag + reserve + separator (mag holds the visible "NN%" on charge
-    -- weapons, so it needs the fix too even though it's hidden on ballistics).
-    -- Runs in BOTH layout modes with the sign following the flag: the classic
-    -- toggle (Ctrl+Shift+O) un-mirrors the cradle live, and the text must
-    -- actively un-flip with it or the digits render backwards in the original
-    -- arrangement.
-    -- Text flip tracks the cradle mirror exactly (see the sx gate above):
-    -- mirrored cradle needs counter-flipped text; unmirrored needs upright.
-    local tx = (CE_LAYOUT and not CLASSIC_OWNS_AMMO) and -1.0 or 1.0
-    for _, t in ipairs(ammo_pool()) do
-        if t:IsValid() then
-            local n = short_name(t):lower()
-            if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n) then
-                pcall(function()
-                    t:SetRenderTransformPivot({ X = 0.5, Y = 0.5 })
-                    t:SetRenderScale({ X = tx, Y = 1.0 })
-                end)
-            end
-        end
-    end
+    -- Counter-flip the ammo text (see apply_text_flip above): runs in BOTH
+    -- layout modes with the sign following the flag, because the classic
+    -- toggle (Ctrl+Shift+O) un-mirrors the cradle live and the text must
+    -- actively un-flip with it or the digits render backwards in the
+    -- original arrangement.
+    apply_text_flip()
 end
 
 -- Nudge elements by a pixel offset (RenderTranslation) per the TRANSLATE table.
@@ -2127,6 +2155,20 @@ if OG_AMMO then
         if enabled then
             local ok, e = pcall(apply_og_ammo)
             if not ok then log("og-ammo(fast) error: " .. tostring(e)) end
+            -- Reassert the ammo-text counter-flip every frame while the CE
+            -- mirror is active: the game restyles these text blocks on every
+            -- ammo change (weapon swaps included), stomping the -1 flip and
+            -- leaving the reserve number mirror-reversed until the next 1s
+            -- enforce tick. Same-value writes are idempotent, so this cannot
+            -- flicker; the pool is the cached one og-ammo already iterates.
+            -- (Flip can only be -1 when OG_AMMO is true -- both require
+            -- CLASSIC_OWNS_AMMO to be false -- so this loop always exists
+            -- when the flip matters. CE_LAYOUT gates per-tick: in the
+            -- original arrangement the game's own +1 is already correct.)
+            if CE_LAYOUT then
+                local okf, ef = pcall(apply_text_flip)
+                if not okf then log("text-flip(fast) error: " .. tostring(ef)) end
+            end
         end
         return false
     end)

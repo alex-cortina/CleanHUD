@@ -26,6 +26,10 @@ retitle it with whatever version number the upload gets.
   during play. (2f9eeef)
 - Removed leftover developer tools from the build: F2/F3/F4 item-spawn keys
   and a grenade-cradle diagnostic logger.
+- In the classic-CE layout, the reserve ammo number no longer reads
+  mirror-reversed for a moment after a weapon swap. The un-flip now
+  reasserts every frame and catches newly built HUD text the instant the
+  game creates it, so at worst it lags a single frame.
 
 ### Changed
 - New default HUD layout: the author's tuned classic-CE arrangement — ammo
