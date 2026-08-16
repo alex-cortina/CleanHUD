@@ -26,23 +26,34 @@ retitle it with whatever version number the upload gets.
 - Default HUD scale is now 0.75 (was 0.80). (53862c2)
 - Shield bar starts at the game's own position; it only moves if you move it.
   (2fd7a26)
+- The ammo and grenade position hotkeys moved from the arrow keys to
+  Ctrl + Shift + WASD (ammo) and Ctrl + Alt + WASD (grenades). Arrow-key
+  binds never fire while the 2001 Shield HUD's native module is loaded, so
+  every position hotkey now lives on letter keys — which also work on 60%
+  keyboards with no arrow row.
 
 ### Added
 - Compatibility with KeyBrute's "2001 Shield HUD" mod: with both mods
   enabled, that mod owns the ARTWORK (its 2001 shield/health meter, its CE
   ammo styling) and CleanHUD owns the LAYOUT (positions, toggles,
   decluttering). CleanHUD stops hiding the widgets its meter is painted on,
-  and suppresses its own mirroring/scaling/ammo styling, which would mangle
-  the painted textures. Position both mods' shared elements with CleanHUD's
-  arrow keys, and consider zeroing the cluster_* offsets in that mod's
-  tuning.txt so only one mod positions things. Its "x" ammo separator is its
-  own CE feature -- toggle via ammo_ce_style in its tuning.txt.
+  suppresses its own mirroring/scaling/ammo styling, which would mangle the
+  painted textures, and keeps the meter on screen in crosshair-only mode.
+  Position both mods' shared elements with CleanHUD's position hotkeys, and
+  consider zeroing the cluster_* offsets in that mod's tuning.txt so only one
+  mod positions things. Its "x" ammo separator is its own CE feature --
+  toggle via ammo_ce_style in its tuning.txt.
 - Ctrl + Shift + O — instantly toggle between the classic-CE layout (ammo
   top-left, the default) and the original arrangement (ammo top-right at the
   game's own position). Your choice is remembered across sessions, and your
   tuned CE positions are kept when switching back and forth.
-- Alt + Shift + Arrows — move the ability/armor-mod icon. (2f9eeef)
-- Ctrl + Alt + Shift + Arrows — move the shield/health bar (requested by
+- Ctrl + Alt + I/J/L/M — move the ability/armor-mod icon (I=up, J=left,
+  L=right, M=down). (2f9eeef)
+- Alt + Shift + I/J/L/M — move the shield/health bar (requested by
   that1dude0092). (2f9eeef)
+- Ctrl + Shift + R — reset every HUD element to its shipped default position,
+  live, and save. The rescue key if an element ever gets nudged off-screen.
+- The classic-CE and original layouts each remember their own ammo-counter
+  position, so tuning one arrangement no longer disturbs the other.
 - Startup log line reports how many position hotkeys registered (16/16), so a
   broken binding is visible instead of silent. (33334ad)

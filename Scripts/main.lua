@@ -78,7 +78,8 @@ local function write_settings(tbl)
     local order = { "visor_lines", "hud_scale", "hide_crosshair", "crosshair_only",
                     "show_objectives", "show_navpoints", "ce_layout",
                     "ce_ammo_x", "ce_ammo_y", "ce_gren_x", "ce_gren_y",
-                    "ce_equip_x", "ce_equip_y", "ce_shield_x", "ce_shield_y" }
+                    "ce_equip_x", "ce_equip_y", "ce_shield_x", "ce_shield_y",
+                    "og_ammo_x", "og_ammo_y" }
     for _, k in ipairs(order) do
         if tbl[k] ~= nil then f:write(k .. "=" .. tostring(tbl[k]) .. "\n") end
     end
@@ -134,6 +135,25 @@ local function classic_shield_hud_enabled()
 end
 local CLASSIC_SHIELD_HUD = classic_shield_hud_enabled()
 
+-- Ammo ownership handshake, decided by THAT mod's own user config (read-only):
+-- if its ammo_ce_style is on, it styles the readout and our OG ammo cedes; if
+-- the user turned it off there, our OG ammo re-owns the readout. Exactly one
+-- writer either way (dual writers strobe, per that mod's own tuning notes).
+-- Its tuning.txt live-reloads on its side; ours is read at startup, so
+-- flipping ammo_ce_style needs a game relaunch to hand ownership across.
+local CLASSIC_OWNS_AMMO = false
+if CLASSIC_SHIELD_HUD then
+    CLASSIC_OWNS_AMMO = true   -- safe default if tuning.txt is unreadable
+    local t = io.open("ue4ss/Mods/HaloCEClassicHud/tuning.txt", "r")
+    if t then
+        for line in t:lines() do
+            local v = line:match("^%s*ammo_ce_style%s*=%s*(%d+)")
+            if v then CLASSIC_OWNS_AMMO = (v ~= "0"); break end
+        end
+        t:close()
+    end
+end
+
 local KEEP_VISOR_LINES = bool_val(ini.visor_lines, false)
 local NEVER_TOUCH = { "wbp_hud_main" }
 
@@ -169,11 +189,13 @@ local SCALE_TARGETS = {
     "shieldhealthbar", "motiontracker", "weaponcradle",
     "grenadecradle", "equipmenticon",
 }
+-- Scaling stays ACTIVE under 2001 Shield HUD compat (painted art scales with
+-- its widget, same reasoning as translation) -- EXCEPT the shield bar: that
+-- mod's meter is calibrated against an unscaled ShieldHealthBar
+-- (shield_scale=2.34 in its tuning), and our 0.75x under it shoved the meter
+-- half off-screen. Its meter, its geometry.
 if CLASSIC_SHIELD_HUD then
-    -- the 2001 Shield HUD reskins these same stock widgets and positions them
-    -- via its own tuning.txt; our RenderScale under its tuned layout misplaces
-    -- everything. Cede element scaling entirely while it's active.
-    SCALE_TARGETS = {}
+    SCALE_TARGETS = { "motiontracker", "weaponcradle", "grenadecradle", "equipmenticon" }
 end
 
 -- Default HUD size on startup = 0.75x. The remake's HUD is noticeably chunkier
@@ -310,6 +332,12 @@ local CE_LAYOUT_PREF = CE_LAYOUT
 -- pulled to the top-left, close to original CE), not computed values.
 local CE_AMMO_X      = tonumber(ini.ce_ammo_x) or -2960
 local CE_AMMO_Y      = tonumber(ini.ce_ammo_y) or -60
+-- The ORIGINAL arrangement gets its own persisted ammo offsets, so the
+-- Ctrl+Shift+Arrow keys work in BOTH arrangements with no mode caveat (the
+-- published keybind list promises "moves the ammo counter", unconditionally).
+-- Defaults are the classic corner tuck the original arrangement always used.
+local OG_AMMO_X      = tonumber(ini.og_ammo_x) or 70
+local OG_AMMO_Y      = tonumber(ini.og_ammo_y) or 45
 
 -- Ability / armour-mod icon: its OWN offset, deliberately separate from the
 -- grenades. Sharing CE_GREN_* is what pushed it off the right edge for D00gs,
@@ -353,6 +381,9 @@ end
 -- and its table must exist unconditionally: the position hotkeys capture these
 -- tables at registration, which now happens in every mode for the live toggle.
 TRANSLATE["shieldhealthbar"] = { x = CE_SHIELD_X, y = CE_SHIELD_Y }
+-- (Under 2001 Shield HUD compat this offset COMPOSES with that mod's own
+-- meter placement: zero by default, so it only moves if the user presses the
+-- shield chord deliberately. Coarse placement belongs to its tuning.txt.)
 
 
 -- (no master on/off key -- the mod stays on; disable the mod file to see vanilla)
@@ -395,6 +426,8 @@ local function save_current()
         -- would wipe the user's tuned CE positions on the next save.
         ce_ammo_x   = string.format("%d", CE_AMMO_X),
         ce_ammo_y   = string.format("%d", CE_AMMO_Y),
+        og_ammo_x   = string.format("%d", OG_AMMO_X),
+        og_ammo_y   = string.format("%d", OG_AMMO_Y),
         ce_gren_x   = string.format("%d", CE_GREN_X),
         ce_gren_y   = string.format("%d", CE_GREN_Y),
         ce_equip_x  = string.format("%d", CE_EQUIP_X),
@@ -428,6 +461,12 @@ local function current_keep()
         -- the TOP visor wire (VisorOverlayImage) is hosted INSIDE the shield
         -- bar; keep the bar's widget alive and prune_host() empties everything
         -- in it except the wire (see the VISOR HOST PRUNE section).
+        list[#list + 1] = "shieldhealthbar"
+    end
+    if crosshair_only and CLASSIC_SHIELD_HUD then
+        -- the 2001 Shield HUD's meter lives in the shield bar; collapsing it
+        -- in crosshair-only mode would start a show/hide war with that mod's
+        -- own enforcement. Its meter stays visible in crosshair-only.
         list[#list + 1] = "shieldhealthbar"
     end
     return list
@@ -788,7 +827,7 @@ end
 -- Ceded to the 2001 Shield HUD when present: its CE-style "x36" readout hides
 -- the reserve block we brighten and the separator we blank -- two mods driving
 -- the same text widgets in opposite directions, ours on a 16ms loop.
-local OG_AMMO = not CLASSIC_SHIELD_HUD  -- ON: OG-style ammo on AR/pistol (mag+"/" hidden,
+local OG_AMMO = not CLASSIC_OWNS_AMMO  -- ON: OG-style ammo on AR/pistol (mag+"/" hidden,
                                    -- reserve kept). Charge weapons (plasma/beam) left intact.
 local RESERVE_HIJACK  = true       -- brighten the faded reserve by intercepting the game's
                                    -- OWN color set and swapping dim->bright before it runs,
@@ -1526,7 +1565,13 @@ local function apply_hud_scale()
                             -- Text inside is counter-flipped below so numbers
                             -- still read normally. Same flat {X,Y} marshal.
                             local sx = HUD_SCALE
-                            if CE_LAYOUT and key == "weaponcradle" then sx = -HUD_SCALE end
+                            -- mirror suppressed only while the 2001 Shield HUD
+                            -- OWNS THE AMMO ART (a negative scale would flip
+                            -- its painted textures). With its ammo_ce_style
+                            -- off, the cradle wears stock art and mirrors fine.
+                            if CE_LAYOUT and not CLASSIC_OWNS_AMMO and key == "weaponcradle" then
+                                sx = -HUD_SCALE
+                            end
                             w:SetRenderScale({ X = sx, Y = HUD_SCALE })
                         end)
                         break
@@ -1544,10 +1589,9 @@ local function apply_hud_scale()
     -- toggle (Ctrl+Shift+O) un-mirrors the cradle live, and the text must
     -- actively un-flip with it or the digits render backwards in the original
     -- arrangement.
-    -- No flip under 2001 Shield HUD compat: SCALE_TARGETS is emptied there, so
-    -- the cradle itself never gets the mirroring RenderScale -- flipped text on
-    -- an unflipped cradle would render backwards.
-    local tx = (CE_LAYOUT and not CLASSIC_SHIELD_HUD) and -1.0 or 1.0
+    -- Text flip tracks the cradle mirror exactly (see the sx gate above):
+    -- mirrored cradle needs counter-flipped text; unmirrored needs upright.
+    local tx = (CE_LAYOUT and not CLASSIC_OWNS_AMMO) and -1.0 or 1.0
     for _, t in ipairs(ammo_pool()) do
         if t:IsValid() then
             local n = short_name(t):lower()
@@ -1822,6 +1866,37 @@ pcall(function()
     end)
 end)
 
+-- Ctrl+Shift+R: reset every tuned position to the shipped defaults. Exists
+-- because a position can be walked past the screen edge, where further nudges
+-- render nothing and the element looks lost (it happened to the author with
+-- the shield meter). Applies live and saves, so no relaunch dance is needed.
+RegisterKeyBind(Key.R, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function()
+    local ok, err = pcall(function()
+        -- shipped defaults (mirror the declaration constants above)
+        CE_AMMO_X, CE_AMMO_Y   = -2960, -60
+        OG_AMMO_X, OG_AMMO_Y   = 70, 45
+        CE_GREN_X, CE_GREN_Y   = -3175, -100
+        CE_EQUIP_X, CE_EQUIP_Y = -3425, 85
+        CE_SHIELD_X, CE_SHIELD_Y = 0, 0
+        local wt = TRANSLATE["weaponcradle"]
+        if wt then
+            if CE_LAYOUT then wt.x, wt.y = CE_AMMO_X, CE_AMMO_Y
+            else wt.x, wt.y = OG_AMMO_X, OG_AMMO_Y end
+        end
+        if CE_LAYOUT then
+            local g = TRANSLATE["grenadecradle"]; if g then g.x, g.y = CE_GREN_X, CE_GREN_Y end
+            local e = TRANSLATE["equipmenticon"]; if e then e.x, e.y = CE_EQUIP_X, CE_EQUIP_Y end
+        end
+        local sh = TRANSLATE["shieldhealthbar"]
+        if sh then sh.x, sh.y = CE_SHIELD_X, CE_SHIELD_Y end
+        pcall(apply_translates)
+        pcall(apply_hud_scale)
+        save_current()
+        log("POSITIONS RESET to shipped defaults (Ctrl+Shift+R).")
+    end)
+    if not ok then log("position reset error: " .. tostring(err)) end
+end)
+
 -- Ctrl+Shift+O: toggle between the classic-CE layout (ammo top-left, the
 -- shipped default) and the ORIGINAL arrangement (ammo top-right, unmirrored,
 -- at the game's own position). Grenades sit top-left in both, so this only
@@ -1837,7 +1912,7 @@ RegisterKeyBind(Key.O, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function()
             wt.x, wt.y = CE_AMMO_X, CE_AMMO_Y
             log("LAYOUT: classic CE (ammo top-left). Ctrl+Shift+O for the original arrangement.")
         else
-            wt.x, wt.y = 70, 45   -- the original corner tuck
+            wt.x, wt.y = OG_AMMO_X, OG_AMMO_Y   -- the original arrangement's own tuned offsets
             log("LAYOUT: original (ammo top-right). Ctrl+Shift+O for classic CE.")
         end
         pcall(apply_translates)
@@ -1851,9 +1926,11 @@ end)
 -- CE-LAYOUT POSITION HOTKEYS (a real feature, not a debug tool): the right
 -- offsets depend on each user's HUD scale and aspect ratio, so they position
 -- the cradles by eye and the values persist to settings.ini.
---   Ctrl+Shift+Arrows : nudge the ammo/weapon cradle, 25 units per press
---   Ctrl+Alt+Arrows   : nudge the grenade+equipment group
-do
+--   Ctrl+Shift+WASD  : nudge the ammo/weapon cradle, 25 units per press
+--   Ctrl+Alt+WASD    : nudge the grenade group
+--   Ctrl+Alt+IJLM    : nudge the ability/equipment icon
+--   Alt+Shift+IJLM   : nudge the shield/health meter
+local okBinds, errBinds = pcall(function()
     -- registered in BOTH layout modes (the Ctrl+Shift+O toggle can enable the
     -- CE layout mid-session); ce_nudge gates per-press instead
     local ammo_group   = { TRANSLATE["weaponcradle"] }
@@ -1862,10 +1939,10 @@ do
     local shield_group = { TRANSLATE["shieldhealthbar"] }
 
     local function ce_nudge(group, label, dx, dy)
-        -- In the original arrangement the cradle offsets aren't applied, so a
-        -- nudge would silently corrupt the SAVED CE positions while moving
-        -- nothing on screen. Shield is exempt: it applies in both layouts.
-        if not CE_LAYOUT and label ~= "shield" then
+        -- Grenades/ability are CE-layout-only: in the original arrangement
+        -- they sit in stock containers that clip translated content out of
+        -- view. Ammo and shield work in every arrangement.
+        if not CE_LAYOUT and (label == "grenades" or label == "ability") then
             log("CE TUNE: switch to the classic-CE layout first (Ctrl+Shift+O) to move the " .. label)
             return
         end
@@ -1877,7 +1954,11 @@ do
         -- toggle (Ctrl+Shift+O) is in the original arrangement, and saving
         -- those zeros would wipe the user's tuned CE positions.
         if label == "ammo" then
-            CE_AMMO_X, CE_AMMO_Y = group[1].x, group[1].y
+            if CE_LAYOUT then
+                CE_AMMO_X, CE_AMMO_Y = group[1].x, group[1].y
+            else
+                OG_AMMO_X, OG_AMMO_Y = group[1].x, group[1].y
+            end
         elseif label == "grenades" then
             CE_GREN_X, CE_GREN_Y = group[1].x, group[1].y
         elseif label == "ability" then
@@ -1901,33 +1982,44 @@ do
         if ok then bound = bound + 1 end
     end
 
+    -- NO ARROW KEYS ANYWHERE: with the 2001 Shield HUD's native module
+    -- loaded, arrow-key keybinds never fire at all (letters fire fine --
+    -- proven live: ability's letter binds logged while ammo's arrow binds
+    -- were silent in the same session). WASD mirrors the arrows spatially.
     local CS = { ModifierKey.CONTROL, ModifierKey.SHIFT }
     local CA = { ModifierKey.CONTROL, ModifierKey.ALT }
-    bind_nudge(Key.LEFT_ARROW,  CS, ammo_group, "ammo",     -25,   0)
-    bind_nudge(Key.RIGHT_ARROW, CS, ammo_group, "ammo",      25,   0)
-    bind_nudge(Key.UP_ARROW,    CS, ammo_group, "ammo",       0, -25)
-    bind_nudge(Key.DOWN_ARROW,  CS, ammo_group, "ammo",       0,  25)
-    bind_nudge(Key.LEFT_ARROW,  CA, gren_group, "grenades", -25,   0)
-    bind_nudge(Key.RIGHT_ARROW, CA, gren_group, "grenades",  25,   0)
-    bind_nudge(Key.UP_ARROW,    CA, gren_group, "grenades",   0, -25)
-    bind_nudge(Key.DOWN_ARROW,  CA, gren_group, "grenades",   0,  25)
+    bind_nudge(Key.A, CS, ammo_group, "ammo",     -25,   0)
+    bind_nudge(Key.D, CS, ammo_group, "ammo",      25,   0)
+    bind_nudge(Key.W, CS, ammo_group, "ammo",       0, -25)
+    bind_nudge(Key.S, CS, ammo_group, "ammo",       0,  25)
+    bind_nudge(Key.A, CA, gren_group, "grenades", -25,   0)
+    bind_nudge(Key.D, CA, gren_group, "grenades",  25,   0)
+    bind_nudge(Key.W, CA, gren_group, "grenades",   0, -25)
+    bind_nudge(Key.S, CA, gren_group, "grenades",   0,  25)
+    -- Ability + shield live on the IJKL letter cluster (I=up J=left M=down
+    -- L=right; M not K -- K already carries Ctrl+Shift+K scale-reset, and a
+    -- third combo on one key is exactly the dispatcher bug this layout avoids), NOT the arrows: this UE4SS build's keybind dispatcher silently
+    -- kills ALL handlers on a key once more than two modifier combos stack on
+    -- it (16/16 "registered", zero firings). Two combos per key is the proven
+    -- limit -- the arrows carry Ctrl+Shift and Ctrl+Alt, and each IJKL letter
+    -- carries exactly two as well. Letters, not numpad: 60% keyboards.
     local AS = { ModifierKey.ALT, ModifierKey.SHIFT }
-    bind_nudge(Key.LEFT_ARROW,  AS, equip_group, "ability",  -25,   0)
-    bind_nudge(Key.RIGHT_ARROW, AS, equip_group, "ability",   25,   0)
-    bind_nudge(Key.UP_ARROW,    AS, equip_group, "ability",    0, -25)
-    bind_nudge(Key.DOWN_ARROW,  AS, equip_group, "ability",    0,  25)
-    local CAS = { ModifierKey.CONTROL, ModifierKey.ALT, ModifierKey.SHIFT }
-    bind_nudge(Key.LEFT_ARROW,  CAS, shield_group, "shield", -25,   0)
-    bind_nudge(Key.RIGHT_ARROW, CAS, shield_group, "shield",  25,   0)
-    bind_nudge(Key.UP_ARROW,    CAS, shield_group, "shield",   0, -25)
-    bind_nudge(Key.DOWN_ARROW,  CAS, shield_group, "shield",   0,  25)
+    bind_nudge(Key.J, CA, equip_group, "ability",  -25,   0)
+    bind_nudge(Key.L, CA, equip_group, "ability",   25,   0)
+    bind_nudge(Key.I, CA, equip_group, "ability",    0, -25)
+    bind_nudge(Key.M, CA, equip_group, "ability",    0,  25)
+    bind_nudge(Key.J, AS, shield_group, "shield",  -25,   0)
+    bind_nudge(Key.L, AS, shield_group, "shield",   25,   0)
+    bind_nudge(Key.I, AS, shield_group, "shield",    0, -25)
+    bind_nudge(Key.M, AS, shield_group, "shield",    0,  25)
     if bound == 16 then
-        log("CE position hotkeys ready (16/16): Ctrl+Shift=ammo, Ctrl+Alt=grenades, "
-            .. "Alt+Shift=ability icon, Ctrl+Alt+Shift=shield bar (+Arrows)")
+        log("CE position hotkeys ready (16/16): Ctrl+Shift+WASD=ammo, Ctrl+Alt+WASD=grenades, "
+            .. "Ctrl+Alt+I/J/L/M=ability icon, Alt+Shift+I/J/L/M=shield bar")
     else
-        log("WARNING: only " .. bound .. "/16 CE position hotkeys registered - arrow-key tuning is degraded")
+        log("WARNING: only " .. bound .. "/16 CE position hotkeys registered - position tuning is degraded")
     end
-end
+end)
+if not okBinds then log("position hotkey registration error: " .. tostring(errBinds)) end
 
 -- TEMP DEV TOOL: spawn grenade pickups without the console (it wedges input
 -- in this game). LoadAsset pulls the blueprint in, then the CheatManager's
@@ -2276,9 +2368,11 @@ log(string.format("Layout: %s -- Ctrl+Shift+O toggles classic-CE vs original arr
     CE_LAYOUT and "classic CE (ammo top-left)" or "original (ammo top-right)"))
 if CLASSIC_SHIELD_HUD then
     log("2001 Shield HUD detected: compatibility mode ON. That mod owns the ARTWORK")
-    log("  (shield meter on the backer/visor widgets, CE ammo styling); CleanHUD owns")
-    log("  LAYOUT (positions, toggles, decluttering). Mirror/scale/OG-ammo stand down")
-    log("  since they would mangle that mod's painted textures.")
+    log("  (shield meter on the backer/visor widgets); CleanHUD owns LAYOUT (positions,")
+    log("  toggles, decluttering). Mirror and element scaling stand down (they would")
+    log("  mangle painted textures). Ammo readout owner: "
+        .. (CLASSIC_OWNS_AMMO and "2001 Shield HUD (ammo_ce_style=1 in its tuning.txt)"
+            or "CleanHUD OG ammo (its ammo_ce_style is off)"))
 end
 if CE_LAYOUT then
     log("CE layout ON: Ctrl+Shift+Arrows move the ammo cradle, Ctrl+Alt+Arrows move grenades (saved).")
