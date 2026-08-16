@@ -1273,66 +1273,6 @@ local function crosshair_unprune()
     xhair_active = false
 end
 
--- TEMP DIAGNOSTIC (grenade icon frozen after type swap, Nexus v3.3 reports):
--- every second, fingerprint the SHOWN grenade cradle -- instance counts plus
--- every leaf widget's name, text, and shown-flag -- and log only when the
--- fingerprint changes. Swapping grenade types must alter the fingerprint if
--- the game is updating THIS instance; a frozen fingerprint means it's updating
--- some other/new instance, while a changing fingerprint with frozen pixels
--- means a render-caching (retainer) problem. Remove once diagnosed.
-local GREN_DIAG = true
-local gren_diag_last
-local function gren_diag()
-    local objs = FindAllOf("WBP_GrenadeCradle_C")
-    local total, shown_n, live = 0, 0, nil
-    if objs then
-        for _, w in ipairs(objs) do
-            if w:IsValid() and not string.find(short_name(w):lower(), "default__", 1, true) then
-                total = total + 1
-                if is_shown(w) then
-                    shown_n = shown_n + 1
-                    live = live or w
-                end
-            end
-        end
-    end
-    local sig = { "cradles=" .. shown_n .. "/" .. total }
-    if live then
-        local n_seen = 0
-        local function walk(w, depth)
-            if not w or not w:IsValid() or depth > 8 or n_seen > 120 then return end
-            n_seen = n_seen + 1
-            local kids = 0
-            local ok, cnt = pcall(function() return w:GetChildrenCount() end)
-            if ok and type(cnt) == "number" then kids = cnt end
-            if kids == 0 then
-                local txt = widget_text(w)
-                sig[#sig + 1] = short_name(w)
-                    .. (txt and txt ~= "" and ("'" .. txt .. "'") or "")
-                    .. (is_shown(w) and "+" or "-")
-            else
-                for i = 0, kids - 1 do
-                    local c; pcall(function() c = w:GetChildAt(i) end)
-                    walk(c, depth + 1)
-                end
-            end
-            pcall(function()
-                local wt = w.WidgetTree
-                if wt and wt:IsValid() then
-                    local r = wt.RootWidget
-                    if r and r:IsValid() then walk(r, depth + 1) end
-                end
-            end)
-        end
-        walk(live, 0)
-    end
-    local s = table.concat(sig, " ")
-    if s ~= gren_diag_last then
-        gren_diag_last = s
-        log("GRENDIAG " .. s)
-    end
-end
-
 local function ce_grenades_right(widgets)
     if not CE_LAYOUT then return end
 
@@ -1463,8 +1403,6 @@ local function apply()
     -- nav marker backing box -> transparent (see NAV MARKER BACKING BOX above)
     local okn, en = pcall(hide_nav_borders)
     if not okn then log("nav-border error: " .. tostring(en)) end
-
-    if GREN_DIAG then pcall(gren_diag) end
 
     -- Shift+C: prune the crosshair's own branches but keep the hit-marker
     -- subtree intact, so the game's hit-marker setting still applies
@@ -2021,53 +1959,6 @@ local okBinds, errBinds = pcall(function()
 end)
 if not okBinds then log("position hotkey registration error: " .. tostring(errBinds)) end
 
--- TEMP DEV TOOL: spawn grenade pickups without the console (it wedges input
--- in this game). LoadAsset pulls the blueprint in, then the CheatManager's
--- own Summon spawns it in front of the player -- same path the console
--- `summon` command takes, minus the console. F2 = plasma (path verified in
--- the object dump), F3 = frag (path guessed from the naming pattern; tries
--- candidates and logs which one worked). REMOVE BEFORE SHIPPING.
-local DEV_SPAWN_BINDS = true
-if DEV_SPAWN_BINDS then
-    -- The REAL in-level pickup actor (has FragGrenadeOverlap pickup logic in
-    -- its blueprint). The _Prototypes paths tried first were test content that
-    -- "summoned" fine but never materialized anything functional.
-    local PLASMA_PICKUP =
-        "/Game/Blueprints/EquipmentActors/BP_Grenade_EquipmentActor.BP_Grenade_EquipmentActor_C"
-    local FRAG_CANDIDATES = {
-        "/Game/Blueprints/EquipmentActors/BP_Grenade_EquipmentActor.BP_Grenade_EquipmentActor_C",
-    }
-
-    local function dev_summon(path)
-        pcall(function() LoadAsset(path) end)
-        local cls
-        pcall(function() cls = StaticFindObject(path) end)
-        if not cls or not cls:IsValid() then return false end
-        local cm = FindFirstOf("CheatManager")
-        if not cm or not cm:IsValid() then log("DEV spawn: no CheatManager instance"); return false end
-        local ok = pcall(function() cm:Summon(path) end)
-        return ok
-    end
-
-    pcall(function()
-        RegisterKeyBind(Key.F2, function()
-            log(dev_summon(PLASMA_PICKUP) and "DEV spawn: plasma pickup dropped ahead of you"
-                or "DEV spawn: plasma FAILED (class did not load)")
-        end)
-        RegisterKeyBind(Key.F3, function()
-            for _, p in ipairs(FRAG_CANDIDATES) do
-                if dev_summon(p) then log("DEV spawn: frag pickup via " .. p); return end
-            end
-            log("DEV spawn: every frag candidate failed -- real asset name needed")
-        end)
-        RegisterKeyBind(Key.F4, function()
-            -- prototype-content path; may be a husk like the prototype plasma
-            log(dev_summon("/Game/_Prototypes/SynchronizationTestContent/Assets/gear/ammo_box/BP_AmmoBoxEquipmentActor.BP_AmmoBoxEquipmentActor_C")
-                and "DEV spawn: ammo box dropped ahead" or "DEV spawn: ammo box FAILED")
-        end)
-    end)
-end
-
 RegisterKeyBind(KEY_DUMP,   function() dump_widgets() end)
 RegisterKeyBind(KEY_REPORT, function() layout_report() end)
 RegisterKeyBind(KEY_TREE,   function() tree_dump() end)
@@ -2186,11 +2077,6 @@ NotifyOnNewObject("/Script/UMG.UserWidget", function(widget)
     local name = class_name(widget)
     if not name then return end
     local lname = name:lower()
-    -- TEMP (grenade icon diag): a NEW cradle instance mid-session would mean
-    -- the game rebuilds it on type swap -- the reparent-breaks-updates theory
-    if string.find(lname, "wbp_grenadecradle", 1, true) then
-        log("GRENDIAG new grenade cradle instance constructed")
-    end
     -- A reticle just spawned: drop the instance cache so the ammo classifier
     -- sees it on its very next pass. Otherwise the empty lists cached during
     -- HUD warm-up would linger until the ~2s periodic clear, extending the
