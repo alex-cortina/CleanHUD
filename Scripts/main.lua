@@ -14,6 +14,7 @@
 --    Ctrl+Shift+N  - toggle objectives + waypoints + pickup markers
 --    Shift+N       - toggle just the waypoints / nav markers
 --    Shift+C       - toggle the crosshair on/off
+--    Ctrl+Shift+O  - toggle classic-CE layout (ammo top-left) vs original (top-right)
 --    Ctrl+Shift+Arrows - CE layout: nudge the ammo cradle (saved to settings.ini)
 --    Ctrl+Alt+Arrows   - CE layout: nudge the grenade/equipment group (saved)
 --    F9            - full dump of every live UI widget (top-level)
@@ -282,9 +283,12 @@ if CE_LAYOUT then
     -- view. ce_grenades_right() applies the CE_GREN offsets on the move event.
     TRANSLATE["grenadecradle"] = { x = 0, y = 0 }
     TRANSLATE["equipmenticon"] = { x = 0, y = 0 }
-    -- shield/health bar: player-movable, no-op until they nudge it
-    TRANSLATE["shieldhealthbar"] = { x = CE_SHIELD_X, y = CE_SHIELD_Y }
 end
+
+-- Shield/health bar nudge is LAYOUT-INDEPENDENT (applies in both arrangements),
+-- and its table must exist unconditionally: the position hotkeys capture these
+-- tables at registration, which now happens in every mode for the live toggle.
+TRANSLATE["shieldhealthbar"] = { x = CE_SHIELD_X, y = CE_SHIELD_Y }
 
 -- (no master on/off key -- the mod stays on; disable the mod file to see vanilla)
 -- Crosshair-only mode uses a modifier combo so NOTHING else can collide with it.
@@ -320,24 +324,18 @@ local function save_current()
         show_objectives = tostring(show_objectives),
         show_navpoints  = tostring(show_navpoints),
         ce_layout       = tostring(CE_LAYOUT),
-        -- tuned cradle offsets (only meaningful -- and only written -- in CE
-        -- layout; reads the live TRANSLATE tables so hotkey nudges are captured)
-        ce_ammo_x = CE_LAYOUT and TRANSLATE["weaponcradle"]
-                    and string.format("%d", TRANSLATE["weaponcradle"].x) or nil,
-        ce_ammo_y = CE_LAYOUT and TRANSLATE["weaponcradle"]
-                    and string.format("%d", TRANSLATE["weaponcradle"].y) or nil,
-        ce_gren_x = CE_LAYOUT and TRANSLATE["grenadecradle"]
-                    and string.format("%d", TRANSLATE["grenadecradle"].x) or nil,
-        ce_gren_y = CE_LAYOUT and TRANSLATE["grenadecradle"]
-                    and string.format("%d", TRANSLATE["grenadecradle"].y) or nil,
-        ce_equip_x = CE_LAYOUT and TRANSLATE["equipmenticon"]
-                    and string.format("%d", TRANSLATE["equipmenticon"].x) or nil,
-        ce_equip_y = CE_LAYOUT and TRANSLATE["equipmenticon"]
-                    and string.format("%d", TRANSLATE["equipmenticon"].y) or nil,
-        ce_shield_x = CE_LAYOUT and TRANSLATE["shieldhealthbar"]
-                    and string.format("%d", TRANSLATE["shieldhealthbar"].x) or nil,
-        ce_shield_y = CE_LAYOUT and TRANSLATE["shieldhealthbar"]
-                    and string.format("%d", TRANSLATE["shieldhealthbar"].y) or nil,
+        -- Tuned cradle offsets: persist the CE_* VARIABLES, not the live
+        -- translate tables. The tables hold zeros while the Ctrl+Shift+O
+        -- toggle is in the original arrangement, and persisting those zeros
+        -- would wipe the user's tuned CE positions on the next save.
+        ce_ammo_x   = string.format("%d", CE_AMMO_X),
+        ce_ammo_y   = string.format("%d", CE_AMMO_Y),
+        ce_gren_x   = string.format("%d", CE_GREN_X),
+        ce_gren_y   = string.format("%d", CE_GREN_Y),
+        ce_equip_x  = string.format("%d", CE_EQUIP_X),
+        ce_equip_y  = string.format("%d", CE_EQUIP_Y),
+        ce_shield_x = string.format("%d", CE_SHIELD_X),
+        ce_shield_y = string.format("%d", CE_SHIELD_Y),
     })
     if ok then
         log("settings: saved to " .. SETTINGS_FILE)
@@ -1168,6 +1166,66 @@ local function crosshair_unprune()
     xhair_active = false
 end
 
+-- TEMP DIAGNOSTIC (grenade icon frozen after type swap, Nexus v3.3 reports):
+-- every second, fingerprint the SHOWN grenade cradle -- instance counts plus
+-- every leaf widget's name, text, and shown-flag -- and log only when the
+-- fingerprint changes. Swapping grenade types must alter the fingerprint if
+-- the game is updating THIS instance; a frozen fingerprint means it's updating
+-- some other/new instance, while a changing fingerprint with frozen pixels
+-- means a render-caching (retainer) problem. Remove once diagnosed.
+local GREN_DIAG = true
+local gren_diag_last
+local function gren_diag()
+    local objs = FindAllOf("WBP_GrenadeCradle_C")
+    local total, shown_n, live = 0, 0, nil
+    if objs then
+        for _, w in ipairs(objs) do
+            if w:IsValid() and not string.find(short_name(w):lower(), "default__", 1, true) then
+                total = total + 1
+                if is_shown(w) then
+                    shown_n = shown_n + 1
+                    live = live or w
+                end
+            end
+        end
+    end
+    local sig = { "cradles=" .. shown_n .. "/" .. total }
+    if live then
+        local n_seen = 0
+        local function walk(w, depth)
+            if not w or not w:IsValid() or depth > 8 or n_seen > 120 then return end
+            n_seen = n_seen + 1
+            local kids = 0
+            local ok, cnt = pcall(function() return w:GetChildrenCount() end)
+            if ok and type(cnt) == "number" then kids = cnt end
+            if kids == 0 then
+                local txt = widget_text(w)
+                sig[#sig + 1] = short_name(w)
+                    .. (txt and txt ~= "" and ("'" .. txt .. "'") or "")
+                    .. (is_shown(w) and "+" or "-")
+            else
+                for i = 0, kids - 1 do
+                    local c; pcall(function() c = w:GetChildAt(i) end)
+                    walk(c, depth + 1)
+                end
+            end
+            pcall(function()
+                local wt = w.WidgetTree
+                if wt and wt:IsValid() then
+                    local r = wt.RootWidget
+                    if r and r:IsValid() then walk(r, depth + 1) end
+                end
+            end)
+        end
+        walk(live, 0)
+    end
+    local s = table.concat(sig, " ")
+    if s ~= gren_diag_last then
+        gren_diag_last = s
+        log("GRENDIAG " .. s)
+    end
+end
+
 local function ce_grenades_right(widgets)
     if not CE_LAYOUT then return end
 
@@ -1299,6 +1357,8 @@ local function apply()
     local okn, en = pcall(hide_nav_borders)
     if not okn then log("nav-border error: " .. tostring(en)) end
 
+    if GREN_DIAG then pcall(gren_diag) end
+
     -- Shift+C: prune the crosshair's own branches but keep the hit-marker
     -- subtree intact, so the game's hit-marker setting still applies
     if hide_crosshair then
@@ -1406,16 +1466,19 @@ local function apply_hud_scale()
     -- X=-1 mirror cancels the parent's, so digits render un-reversed. Applies
     -- to mag + reserve + separator (mag holds the visible "NN%" on charge
     -- weapons, so it needs the fix too even though it's hidden on ballistics).
-    if CE_LAYOUT then
-        for _, t in ipairs(ammo_pool()) do
-            if t:IsValid() then
-                local n = short_name(t):lower()
-                if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n) then
-                    pcall(function()
-                        t:SetRenderTransformPivot({ X = 0.5, Y = 0.5 })
-                        t:SetRenderScale({ X = -1.0, Y = 1.0 })
-                    end)
-                end
+    -- Runs in BOTH layout modes with the sign following the flag: the classic
+    -- toggle (Ctrl+Shift+O) un-mirrors the cradle live, and the text must
+    -- actively un-flip with it or the digits render backwards in the original
+    -- arrangement.
+    local tx = CE_LAYOUT and -1.0 or 1.0
+    for _, t in ipairs(ammo_pool()) do
+        if t:IsValid() then
+            local n = short_name(t):lower()
+            if is_mag_name(n) or is_reserve_name(n) or is_slash(t, n) then
+                pcall(function()
+                    t:SetRenderTransformPivot({ X = 0.5, Y = 0.5 })
+                    t:SetRenderScale({ X = tx, Y = 1.0 })
+                end)
             end
         end
     end
@@ -1682,28 +1745,67 @@ pcall(function()
     end)
 end)
 
+-- Ctrl+Shift+O: toggle between the classic-CE layout (ammo top-left, the
+-- shipped default) and the ORIGINAL arrangement (ammo top-right, unmirrored,
+-- at the game's own position). Grenades sit top-left in both, so this only
+-- moves the ammo cradle: the mirror and text counter-flip follow CE_LAYOUT
+-- inside apply_hud_scale, and ce_grenades_right() picks the flag up live if
+-- the CE layout is enabled mid-session. Persists as ce_layout.
+RegisterKeyBind(Key.O, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function()
+    local ok, err = pcall(function()
+        CE_LAYOUT = not CE_LAYOUT
+        local wt = TRANSLATE["weaponcradle"]
+        if CE_LAYOUT then
+            wt.x, wt.y = CE_AMMO_X, CE_AMMO_Y
+            log("LAYOUT: classic CE (ammo top-left). Ctrl+Shift+O for the original arrangement.")
+        else
+            wt.x, wt.y = 70, 45   -- the original corner tuck
+            log("LAYOUT: original (ammo top-right). Ctrl+Shift+O for classic CE.")
+        end
+        pcall(apply_translates)
+        pcall(apply_hud_scale)
+        pcall(apply)
+        save_current()
+    end)
+    if not ok then log("layout toggle error: " .. tostring(err)) end
+end)
+
 -- CE-LAYOUT POSITION HOTKEYS (a real feature, not a debug tool): the right
 -- offsets depend on each user's HUD scale and aspect ratio, so they position
 -- the cradles by eye and the values persist to settings.ini.
 --   Ctrl+Shift+Arrows : nudge the ammo/weapon cradle, 25 units per press
 --   Ctrl+Alt+Arrows   : nudge the grenade+equipment group
-if CE_LAYOUT then
+do
+    -- registered in BOTH layout modes (the Ctrl+Shift+O toggle can enable the
+    -- CE layout mid-session); ce_nudge gates per-press instead
     local ammo_group   = { TRANSLATE["weaponcradle"] }
     local gren_group   = { TRANSLATE["grenadecradle"] }
     local equip_group  = { TRANSLATE["equipmenticon"] }
     local shield_group = { TRANSLATE["shieldhealthbar"] }
 
     local function ce_nudge(group, label, dx, dy)
+        -- In the original arrangement the cradle offsets aren't applied, so a
+        -- nudge would silently corrupt the SAVED CE positions while moving
+        -- nothing on screen. Shield is exempt: it applies in both layouts.
+        if not CE_LAYOUT and label ~= "shield" then
+            log("CE TUNE: switch to the classic-CE layout first (Ctrl+Shift+O) to move the " .. label)
+            return
+        end
         for _, t in ipairs(group) do t.x = t.x + dx; t.y = t.y + dy end
-        -- Keep the launch constants in sync. ce_grenades_right() re-applies
-        -- CE_GREN_* every time it reparents, which happens again on each HUD
-        -- rebuild (level change) -- without this, a session's grenade tuning
-        -- gets saved to the ini and then snapped back to the launch value on
-        -- the next level load. Ammo is unaffected: nothing re-applies it.
-        if label == "grenades" then
+        -- Keep the CE_* launch variables in sync for EVERY group: they are the
+        -- single source of truth. ce_grenades_right() re-applies them on each
+        -- HUD rebuild, and save_current() persists THEM rather than the live
+        -- translate tables -- the tables hold zeros while the classic layout
+        -- toggle (Ctrl+Shift+O) is in the original arrangement, and saving
+        -- those zeros would wipe the user's tuned CE positions.
+        if label == "ammo" then
+            CE_AMMO_X, CE_AMMO_Y = group[1].x, group[1].y
+        elseif label == "grenades" then
             CE_GREN_X, CE_GREN_Y = group[1].x, group[1].y
         elseif label == "ability" then
             CE_EQUIP_X, CE_EQUIP_Y = group[1].x, group[1].y
+        elseif label == "shield" then
+            CE_SHIELD_X, CE_SHIELD_Y = group[1].x, group[1].y
         end
         pcall(apply_translates)
         log(string.format("CE TUNE %s -> x=%d  y=%d", label, group[1].x, group[1].y))
@@ -1747,6 +1849,53 @@ if CE_LAYOUT then
     else
         log("WARNING: only " .. bound .. "/16 CE position hotkeys registered - arrow-key tuning is degraded")
     end
+end
+
+-- TEMP DEV TOOL: spawn grenade pickups without the console (it wedges input
+-- in this game). LoadAsset pulls the blueprint in, then the CheatManager's
+-- own Summon spawns it in front of the player -- same path the console
+-- `summon` command takes, minus the console. F2 = plasma (path verified in
+-- the object dump), F3 = frag (path guessed from the naming pattern; tries
+-- candidates and logs which one worked). REMOVE BEFORE SHIPPING.
+local DEV_SPAWN_BINDS = true
+if DEV_SPAWN_BINDS then
+    -- The REAL in-level pickup actor (has FragGrenadeOverlap pickup logic in
+    -- its blueprint). The _Prototypes paths tried first were test content that
+    -- "summoned" fine but never materialized anything functional.
+    local PLASMA_PICKUP =
+        "/Game/Blueprints/EquipmentActors/BP_Grenade_EquipmentActor.BP_Grenade_EquipmentActor_C"
+    local FRAG_CANDIDATES = {
+        "/Game/Blueprints/EquipmentActors/BP_Grenade_EquipmentActor.BP_Grenade_EquipmentActor_C",
+    }
+
+    local function dev_summon(path)
+        pcall(function() LoadAsset(path) end)
+        local cls
+        pcall(function() cls = StaticFindObject(path) end)
+        if not cls or not cls:IsValid() then return false end
+        local cm = FindFirstOf("CheatManager")
+        if not cm or not cm:IsValid() then log("DEV spawn: no CheatManager instance"); return false end
+        local ok = pcall(function() cm:Summon(path) end)
+        return ok
+    end
+
+    pcall(function()
+        RegisterKeyBind(Key.F2, function()
+            log(dev_summon(PLASMA_PICKUP) and "DEV spawn: plasma pickup dropped ahead of you"
+                or "DEV spawn: plasma FAILED (class did not load)")
+        end)
+        RegisterKeyBind(Key.F3, function()
+            for _, p in ipairs(FRAG_CANDIDATES) do
+                if dev_summon(p) then log("DEV spawn: frag pickup via " .. p); return end
+            end
+            log("DEV spawn: every frag candidate failed -- real asset name needed")
+        end)
+        RegisterKeyBind(Key.F4, function()
+            -- prototype-content path; may be a husk like the prototype plasma
+            log(dev_summon("/Game/_Prototypes/SynchronizationTestContent/Assets/gear/ammo_box/BP_AmmoBoxEquipmentActor.BP_AmmoBoxEquipmentActor_C")
+                and "DEV spawn: ammo box dropped ahead" or "DEV spawn: ammo box FAILED")
+        end)
+    end)
 end
 
 RegisterKeyBind(KEY_DUMP,   function() dump_widgets() end)
@@ -1867,6 +2016,11 @@ NotifyOnNewObject("/Script/UMG.UserWidget", function(widget)
     local name = class_name(widget)
     if not name then return end
     local lname = name:lower()
+    -- TEMP (grenade icon diag): a NEW cradle instance mid-session would mean
+    -- the game rebuilds it on type swap -- the reparent-breaks-updates theory
+    if string.find(lname, "wbp_grenadecradle", 1, true) then
+        log("GRENDIAG new grenade cradle instance constructed")
+    end
     -- A reticle just spawned: drop the instance cache so the ammo classifier
     -- sees it on its very next pass. Otherwise the empty lists cached during
     -- HUD warm-up would linger until the ~2s periodic clear, extending the
@@ -2040,6 +2194,8 @@ log(string.format("  visor=%s  scale=%.2f  crosshair_only=%s  hide_crosshair=%s 
 log("Ctrl+Shift+H=crosshair-only, Ctrl+Shift+V=visor lines.")
 log("HUD SCALE: Ctrl+Shift+- =smaller, Ctrl+Shift++ =bigger, Ctrl+Shift+K=reset (numpad +/- too).")
 log("Ctrl+Shift+N=objectives+waypoints, Shift+N=waypoints only, Shift+C=crosshair.")
+log(string.format("Layout: %s -- Ctrl+Shift+O toggles classic-CE vs original arrangement.",
+    CE_LAYOUT and "classic CE (ammo top-left)" or "original (ammo top-right)"))
 if CE_LAYOUT then
     log("CE layout ON: Ctrl+Shift+Arrows move the ammo cradle, Ctrl+Alt+Arrows move grenades (saved).")
 end
