@@ -29,6 +29,18 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
      dead pair, decorations returning after a level change). Apply the full
      check to EVERY single-target lookup, not just the one being debugged.
 
+4. **The UE4SS keybind dispatcher has a hard 2-combo-per-key limit.** Stack a
+   third modifier combo on any one key and ALL handlers on that key silently
+   die — registration still "succeeds", zero firings, no error. Also: with
+   the 2001 Shield HUD's native DLL loaded, arrow-key binds never fire at all
+   (letter keys are fine). Hence WASD/IJLM position clusters, exactly two
+   combos per key, no arrows anywhere. Letters only — no numpad either (the
+   author is on a 60% keyboard).
+
+5. **UE4SS.log is OVERWRITTEN on every game launch.** Before greping it,
+   confirm the timestamps match the session the user actually tested, or the
+   analysis describes the wrong run. Protocol: launch → test → close → read.
+
 ## What works / what doesn't (UE4SS Lua, learned empirically)
 
 - **Works:** RenderTranslation/RenderScale with flat `{X,Y}` tables; reparenting
@@ -40,8 +52,19 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
   (go stale across levels); Pawn:GetBaseAimRotation (game never calls it —
   aim path is unreachable Blam C++, so crosshair position can't be changed).
 - **HUD positioning:** never compute offsets from screenshots — tune live with
-  the arrow-key hotkeys and bake the CE TUNE console values. The grenade box
-  clips between x=375 (ok) and x=500 (vanish) at 16:9.
+  the position hotkeys (Ctrl+Shift+WASD etc.) and bake the CE TUNE log values.
+  The grenade box clips between x=375 (ok) and x=500 (vanish) at 16:9.
+  Ctrl+Shift+R rescues elements walked off-screen (resets all, live, saves).
+
+## Branches
+
+- `main` — standalone CleanHUD; defaults assume no other HUD mod.
+- `shield-hud-2001` — "2001 Edition": same code, defaults baked for running
+  alongside KeyBrute's 2001 Shield HUD (Nexus #245) with that mod's cluster_*
+  offsets zeroed in its tuning.txt. Keep it fast-forwarded from main; the only
+  intended diff is the default constants (declarations + Ctrl+Shift+R block —
+  the defaults live in BOTH places) and its extra changelog section. Never
+  edit KeyBrute's mod code; tuning.txt edits are sanctioned.
 
 ## Conventions
 
