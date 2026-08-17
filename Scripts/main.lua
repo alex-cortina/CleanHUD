@@ -1294,7 +1294,13 @@ local function crosshair_unprune()
 end
 
 local function ce_grenades_right(widgets)
-    if not CE_LAYOUT then return end
+    -- Runs in BOTH layout arrangements (was CE-only): the stock grenade grid
+    -- cell clips translated content, so the position hotkeys could never work
+    -- there -- which read as dead keys in the original arrangement (reported
+    -- by LifelessTooth). Re-seating grenades + equipment in the weapon box
+    -- unconditionally means one movable mount, one tuned position, and the
+    -- same behavior in every mode. The Ctrl+Shift+O toggle only ever moves
+    -- the AMMO cradle anyway; grenades sit top-left in both arrangements.
 
     -- SHOWN only (stale instances from old levels also match), and EXACT class
     -- names: the asset folder is /Game/UI/Hud/WeaponCradle/, so a bare
@@ -1433,7 +1439,7 @@ local function apply()
         pcall(crosshair_unprune)
     end
 
-    -- CE layout: grenades + equipment live in the right-side weapon box
+    -- Both layouts: grenades + equipment live on the movable weapon-box mount
     local okg, eg = pcall(ce_grenades_right, widgets)
     if not okg then log("ce-grenades error: " .. tostring(eg)) end
 
@@ -1869,8 +1875,8 @@ end)
 -- shipped default) and the ORIGINAL arrangement (ammo top-right, unmirrored,
 -- at the game's own position). Grenades sit top-left in both, so this only
 -- moves the ammo cradle: the mirror and text counter-flip follow CE_LAYOUT
--- inside apply_hud_scale, and ce_grenades_right() picks the flag up live if
--- the CE layout is enabled mid-session. Persists as ce_layout.
+-- inside apply_hud_scale. Grenades/ability/shield keep their one tuned
+-- position across both arrangements. Persists as ce_layout.
 RegisterKeyBind(Key.O, { ModifierKey.CONTROL, ModifierKey.SHIFT }, function()
     local ok, err = pcall(function()
         CE_LAYOUT = not CE_LAYOUT
@@ -1899,28 +1905,26 @@ end)
 --   Ctrl+Alt+IJLM    : nudge the ability/equipment icon
 --   Alt+Shift+IJLM   : nudge the shield/health meter
 local okBinds, errBinds = pcall(function()
-    -- registered in BOTH layout modes (the Ctrl+Shift+O toggle can enable the
-    -- CE layout mid-session); ce_nudge gates per-press instead
+    -- registered once, live in BOTH layout arrangements -- no per-press
+    -- gating; every element is movable in every mode
     local ammo_group   = { TRANSLATE["weaponcradle"] }
     local gren_group   = { TRANSLATE["grenadecradle"] }
     local equip_group  = { TRANSLATE["equipmenticon"] }
     local shield_group = { TRANSLATE["shieldhealthbar"] }
 
     local function ce_nudge(group, label, dx, dy)
-        -- Grenades/ability are CE-layout-only: in the original arrangement
-        -- they sit in stock containers that clip translated content out of
-        -- view. Ammo and shield work in every arrangement.
-        if not CE_LAYOUT and (label == "grenades" or label == "ability") then
-            log("CE TUNE: switch to the classic-CE layout first (Ctrl+Shift+O) to move the " .. label)
-            return
-        end
+        -- Every element moves in EVERY arrangement. Grenades/ability used to
+        -- be CE-layout-only (their stock containers clip translated content),
+        -- but ce_grenades_right now re-seats them on the movable mount in
+        -- both modes, so the clip trap is gone and so is the gate -- which
+        -- players read as dead keys, since its hint only went to the log.
         for _, t in ipairs(group) do t.x = t.x + dx; t.y = t.y + dy end
-        -- Keep the CE_* launch variables in sync for EVERY group: they are the
-        -- single source of truth. ce_grenades_right() re-applies them on each
-        -- HUD rebuild, and save_current() persists THEM rather than the live
-        -- translate tables -- the tables hold zeros while the classic layout
-        -- toggle (Ctrl+Shift+O) is in the original arrangement, and saving
-        -- those zeros would wipe the user's tuned CE positions.
+        -- Keep the CE_* launch variables in sync for EVERY group: they are
+        -- the single source of truth. ce_grenades_right() re-applies them on
+        -- each HUD rebuild, and save_current() persists THEM rather than the
+        -- live translate tables. Only the ammo cradle is per-arrangement
+        -- (CE_* vs OG_*); grenades/ability/shield share one tuned position
+        -- across both arrangements.
         if label == "ammo" then
             if CE_LAYOUT then
                 CE_AMMO_X, CE_AMMO_Y = group[1].x, group[1].y

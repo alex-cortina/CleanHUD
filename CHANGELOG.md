@@ -30,6 +30,12 @@ retitle it with whatever version number the upload gets.
   mirror-reversed for a moment after a weapon swap. The un-flip now
   reasserts every frame and catches newly built HUD text the instant the
   game creates it, so at worst it lags a single frame.
+- Grenade and ability-icon movement now works in BOTH layout arrangements
+  (reported by LifelessTooth). In the original arrangement those keys were
+  silently disabled — the "switch layouts first" hint only went to the log
+  file, so they read as dead keybinds. Both elements now sit on the same
+  movable mount in every mode and keep one tuned position across
+  arrangements; only the ammo counter remembers a separate spot per layout.
 
 ### Changed
 - New default HUD layout: the author's tuned classic-CE arrangement — ammo
