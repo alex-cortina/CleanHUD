@@ -4,7 +4,11 @@ Versions are assigned on Nexus at upload time. Everything under **Unreleased**
 ships with the next upload; paste that section into the Nexus changelog and
 retitle it with whatever version number the upload gets.
 
-## Unreleased
+## Removed 4.0 beta (not in 3.4)
+
+These changes shipped only in the 4.0 beta, which was later removed from
+Nexus. The only download left is 3.4, which does NOT include them. The code
+is on main if the mod is ever revived.
 
 ### Fixed
 - Hit markers now work while the crosshair is hidden with Shift+C. They live
