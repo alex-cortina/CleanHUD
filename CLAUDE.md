@@ -58,13 +58,14 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
 
 ## Branches
 
-- `main` — standalone CleanHUD; defaults assume no other HUD mod.
-- `shield-hud-2001` — "2001 Edition": same code, defaults baked for running
-  alongside KeyBrute's 2001 Shield HUD (Nexus #245) with that mod's cluster_*
-  offsets zeroed in its tuning.txt. Keep it fast-forwarded from main; the only
-  intended diff is the default constants (declarations + Ctrl+Shift+R block —
-  the defaults live in BOTH places) and its extra changelog section. Never
-  edit KeyBrute's mod code; tuning.txt edits are sanctioned.
+- `main` — the only branch; defaults assume no other HUD mod.
+- `shield-hud-2001` (DELETED October 2026, last commit 00542cc)
+  was the "2001 Edition" for KeyBrute's 2001 Shield HUD (Nexus #245).
+  It differed from main ONLY in default positions. To rebuild it, set these
+  in both the declarations and the Ctrl+Shift+R block:
+  ammo -2985/-35, grenades -3050/125, ability -3375/85, shield 1625/50.
+  It assumed that mod's cluster_* offsets were zeroed in its tuning.txt.
+  Never edit KeyBrute's mod code; tuning.txt edits are sanctioned.
 
 ## Conventions
 
