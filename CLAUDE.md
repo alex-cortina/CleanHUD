@@ -82,3 +82,22 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
 - Every user-visible change gets a bullet in CHANGELOG.md's Unreleased section
   in the same commit. At upload, the user pastes that section into Nexus and
   retitles it with the version the upload gets.
+
+## Maintenance mode (retired October 2026)
+
+The mod is feature-complete and no longer actively developed. Expect to open
+this repo maybe once a year, usually because a game patch broke something.
+Revival checklist, in order:
+
+1. Update UE4SS first if the game patch requires it; re-test with ONLY
+   CleanHUD enabled before blaming the script.
+2. Launch, reach gameplay, close, then read `UE4SS.log` (it is overwritten
+   each launch). Look for `CE position hotkeys ready (16/16)` and any
+   `error:` lines from apply / translate / hud-scale / og-ammo.
+3. Most likely breakage: renamed widget classes. Regenerate
+   `UE4SS_ObjectDump.txt` and re-check the names the script matches
+   (`wbp_weaponcradle_c`, `wbp_grenadecradle_c`, `wbp_equipmenticon_c`,
+   `/Script/HaloUI.HaloUINumericTextBlock`, the KEEP / EXTRA_HIDE lists).
+4. Fix on `main`, confirm in game, then merge into `shield-hud-2001` and
+   rebuild both Nexus packages (Scripts/main.lua + enabled.txt only — never
+   ship a settings.ini).
