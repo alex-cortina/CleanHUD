@@ -88,6 +88,21 @@ Published on Nexus: https://www.nexusmods.com/halocampaignevolved/mods/100
 
 The mod is feature-complete and no longer actively developed. Expect to open
 this repo maybe once a year, usually because a game patch broke something.
+
+**NOTE TO FUTURE ALEX (and Claude): before ANY new work, do a big cleanup
+first.** The docs grew during a long, messy dev cycle and are out of date in
+places. Clean them before trusting them:
+- `AGENTS.md` (untracked, local only) is a duplicate of this file. Delete it
+  or make it a one-line pointer here — never keep two copies in sync by hand.
+- This file mixes rules with war stories. Cut it down to the traps and
+  conventions that still matter; move history into git or the changelog.
+- `CHANGELOG.md`: its header still describes the old "Unreleased → paste to
+  Nexus" workflow, and its top section is the removed 4.0 beta. Decide
+  whether that work ships, then rewrite the header.
+- `Scripts/main.lua` comments still mention removed features and old key
+  names in places. Skim and trim before editing code.
+Only after the cleanup, follow the revival checklist below.
+
 Revival checklist, in order:
 
 1. Update UE4SS first if the game patch requires it; re-test with ONLY
@@ -99,6 +114,7 @@ Revival checklist, in order:
    `UE4SS_ObjectDump.txt` and re-check the names the script matches
    (`wbp_weaponcradle_c`, `wbp_grenadecradle_c`, `wbp_equipmenticon_c`,
    `/Script/HaloUI.HaloUINumericTextBlock`, the KEEP / EXTRA_HIDE lists).
-4. Fix on `main`, confirm in game, then merge into `shield-hud-2001` and
-   rebuild both Nexus packages (Scripts/main.lua + enabled.txt only — never
-   ship a settings.ini).
+4. Fix on `main`, confirm in game, then build the Nexus package
+   (Scripts/main.lua + enabled.txt only — never ship a settings.ini).
+   The 3.4 file on Nexus does NOT contain the 4.0-beta work on main; test
+   the full current build before uploading.
